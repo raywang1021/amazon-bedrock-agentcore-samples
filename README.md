@@ -99,6 +99,33 @@ Use `agentcore invoke` to invoke your deployed agent.
 
 整個過程有兩次 Bedrock API call（Main agent 判斷 + Sub-agent 評分），這是延遲的主要來源。
 
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant AC as AgentCore
+    participant SA as Strands Agent
+    participant C1 as Claude (Main)
+    participant T as evaluate_geo_score
+    participant S as sanitize
+    participant C2 as Claude (Sub-agent)
+
+    U->>AC: "評估 GEO 分數: https://..."
+    AC->>SA: payload + prompt
+    SA->>C1: prompt + tools list
+    C1-->>SA: tool_use: evaluate_geo_score(url)
+    SA->>T: call function(url)
+    T->>T: fetch webpage (requests)
+    T->>S: sanitize(raw text)
+    S-->>T: cleaned text
+    T->>C2: prompt + cleaned text
+    C2-->>T: JSON scores
+    T-->>SA: tool result (JSON)
+    SA->>C1: tool result
+    C1-->>SA: final response
+    SA-->>AC: stream response
+    AC-->>U: streaming text
+```
+
 ## Strands `@tool` vs MCP
 
 這個專案的 tool 用 Strands 的 `@tool` decorator 定義，跟 agent 跑在同一個 process，呼叫就是 Python function call，沒有額外的網路開銷。
