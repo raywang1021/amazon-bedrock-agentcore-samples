@@ -99,6 +99,71 @@ Use `agentcore invoke` to invoke your deployed agent.
 
 整個過程有兩次 Bedrock API call（Main agent 判斷 + Sub-agent 評分），這是延遲的主要來源。
 
+### Mermaid Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant AgentCore
+    participant MainAgent as Strands Agent
+    participant Claude1 as Claude (Main)
+    participant Tool as evaluate_geo_score
+    participant Sanitize as sanitize
+    participant Claude2 as Claude (Sub-agent)
+
+    User->>AgentCore: "評估 GEO 分數: https://..."
+    AgentCore->>MainAgent: payload + prompt
+    MainAgent->>Claude1: prompt + tools list
+    Claude1-->>MainAgent: tool_use: evaluate_geo_score(url)
+    MainAgent->>Tool: call function(url)
+    Tool->>Tool: fetch webpage (requests + trafilatura)
+    Tool->>Sanitize: sanitize_web_content(raw text)
+    Sanitize-->>Tool: cleaned text
+    Tool->>Claude2: EVAL_SYSTEM_PROMPT + cleaned text
+    Claude2-->>Tool: JSON scores
+    Tool-->>MainAgent: tool result (JSON)
+    MainAgent->>Claude1: tool result
+    Claude1-->>MainAgent: final response
+    MainAgent-->>AgentCore: stream response
+    AgentCore-->>User: streaming text
+```
+
+### Text Diagram
+
+```
+User          AgentCore      Strands Agent   Claude (Main)   evaluate_geo_score  sanitize    Claude (Sub)
+ │                │                │               │                │               │              │
+ │  prompt        │                │               │                │               │              │
+ │───────────────>│  payload       │               │                │               │              │
+ │                │───────────────>│  prompt+tools  │                │               │              │
+ │                │                │──────────────>│                │               │              │
+ │                │                │  tool_use     │                │               │              │
+ │                │                │<──────────────│                │               │              │
+ │                │                │  call(url)    │                │               │              │
+ │                │                │──────────────────────────────>│               │              │
+ │                │                │               │                │  fetch webpage │              │
+ │                │                │               │                │──> requests   │              │
+ │                │                │               │                │<── html       │              │
+ │                │                │               │                │  sanitize()   │              │
+ │                │                │               │                │──────────────>│              │
+ │                │                │               │                │  clean text   │              │
+ │                │                │               │                │<──────────────│              │
+ │                │                │               │                │  prompt+text  │              │
+ │                │                │               │                │─────────────────────────────>│
+ │                │                │               │                │  JSON scores  │              │
+ │                │                │               │                │<─────────────────────────────│
+ │                │                │  tool result  │                │               │              │
+ │                │                │<──────────────────────────────│               │              │
+ │                │                │  tool result  │                │               │              │
+ │                │                │──────────────>│                │               │              │
+ │                │                │  response     │                │               │              │
+ │                │                │<──────────────│                │               │              │
+ │                │  stream        │               │                │               │              │
+ │                │<───────────────│               │                │               │              │
+ │  streaming text│                │               │                │               │              │
+ │<───────────────│                │               │                │               │              │
+```
+
 ```mermaid
 sequenceDiagram
     participant U as User
