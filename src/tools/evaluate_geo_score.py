@@ -1,7 +1,6 @@
 import json
 import requests
 from strands import tool
-from strands.models import BedrockModel
 
 EVAL_SYSTEM_PROMPT = """You are a GEO (Generative Engine Optimization) scoring expert.
 
@@ -123,7 +122,9 @@ def evaluate_geo_score(url: str) -> str:
     if len(page_text) > max_chars:
         page_text = page_text[:max_chars] + "\n\n[Content truncated for analysis]"
 
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    from model.load import load_model
+
+    model = load_model()
 
     from strands import Agent
 

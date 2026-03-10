@@ -1,6 +1,5 @@
 import requests
 from strands import tool
-from strands.models import BedrockModel
 
 LLMS_TXT_SYSTEM_PROMPT = """You are an expert at creating llms.txt files following the official specification by Jeremy Howard (Answer.AI, September 2024).
 
@@ -118,7 +117,9 @@ def generate_llms_txt(url: str) -> str:
     if len(page_text) > max_chars:
         page_text = page_text[:max_chars] + "\n\n[Content truncated]"
 
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    from model.load import load_model
+
+    model = load_model()
 
     from strands import Agent
 

@@ -3,22 +3,22 @@ agents:
   geo_agent:
     name: geo_agent
     language: python
-    node_version: null
+    node_version: '20'
     entrypoint: /Users/yushengh/Documents/SA/SourceCodes/python/geoagent/src/main.py
     deployment_type: direct_code_deploy
-    runtime_type: PYTHON_3_13
-    platform: linux/amd64
+    runtime_type: PYTHON_3_10
+    platform: linux/arm64
     container_runtime: null
     source_path: /Users/yushengh/Documents/SA/SourceCodes/python/geoagent/src
     aws:
-      execution_role: arn:aws:iam::718498700052:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-d4ca190fbf
-      execution_role_auto_create: false
-      account: '718498700052'
+      execution_role: null
+      execution_role_auto_create: true
+      account: 023268648855
       region: us-east-1
       ecr_repository: null
       ecr_auto_create: false
-      s3_path: s3://bedrock-agentcore-codebuild-sources-718498700052-us-east-1
-      s3_auto_create: false
+      s3_path: null
+      s3_auto_create: true
       network_configuration:
         network_mode: PUBLIC
         network_mode_config: null
@@ -38,10 +38,10 @@ agents:
       execution_role: null
       source_bucket: null
     memory:
-      mode: NO_MEMORY
+      mode: STM_ONLY
       memory_id: null
       memory_arn: null
-      memory_name: null
+      memory_name: geo_agent_memory
       event_expiry_days: 30
       first_invoke_memory_check_done: false
       was_created_by_toolkit: false

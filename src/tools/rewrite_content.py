@@ -1,5 +1,4 @@
 from strands import tool
-from strands.models import BedrockModel
 
 REWRITE_SYSTEM_PROMPT = """You are a Generative Engine Optimization Expert. Directly rewrite the user's input content following these GEO best practices:
 
@@ -31,7 +30,9 @@ def rewrite_content_for_geo(content: str) -> str:
     Args:
         content: The raw content text to be rewritten and optimized for GEO.
     """
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    from model.load import load_model
+
+    model = load_model()
 
     from strands import Agent
 
