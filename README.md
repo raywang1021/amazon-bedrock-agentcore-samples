@@ -39,6 +39,20 @@ agentcore configure
 
 This will interactively set up your AWS region, IAM role, S3 bucket, and agent settings in `.bedrock_agentcore.yaml`.
 
+## Troubleshooting
+
+### `RequestsDependencyWarning: urllib3 ... or chardet ... doesn't match a supported version`
+
+This is caused by `chardet` and `charset_normalizer` both being installed. `prance` (a transitive dependency of `bedrock-agentcore-starter-toolkit`) pulls in `chardet`, which conflicts with `requests`' preferred `charset_normalizer`.
+
+Fix:
+
+```bash
+pip uninstall chardet -y
+```
+
+`agentcore dev` may reinstall dependencies and bring `chardet` back. Re-run the fix if the warning reappears.
+
 ## Run locally
 
 ```bash
