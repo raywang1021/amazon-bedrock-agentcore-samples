@@ -36,7 +36,7 @@ var AI_BOT_PATTERNS = [
 
 // --- Configuration ---
 // Replace with your API Gateway domain for GEO content
-var GEO_ORIGIN_DOMAIN = 'YOUR_API_GATEWAY_ID.execute-api.us-east-1.amazonaws.com';
+var GEO_ORIGIN_DOMAIN = 'h77cl56kzg.execute-api.us-east-1.amazonaws.com';
 var GEO_ORIGIN_PATH = '/prod';
 
 function handler(event) {
