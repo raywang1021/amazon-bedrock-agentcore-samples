@@ -9,6 +9,17 @@ Parameters:
   Stage:
     Type: String
     Default: prod
+  AgentRuntimeArn:
+    Type: String
+    Default: ""
+    Description: AgentCore Runtime ARN for on-the-fly GEO content generation
+  DefaultOriginHost:
+    Type: String
+    Default: ""
+    Description: Default origin host for reconstructing original URLs
+
+Conditions:
+  HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
 
 Resources:
   # DynamoDB table for GEO-optimized content
@@ -27,7 +38,7 @@ Resources:
         AttributeName: ttl
         Enabled: true
 
-  # Lambda function to serve GEO content
+  # Lambda: serves GEO content from DDB, triggers async generation on miss
   GeoContentFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -40,9 +51,13 @@ Resources:
       Environment:
         Variables:
           GEO_TABLE_NAME: !Ref TableName
+          GENERATOR_FUNCTION_NAME: !Ref GeoGeneratorFunction
+          DEFAULT_ORIGIN_HOST: !Ref DefaultOriginHost
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref TableName
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GeoGeneratorFunction
       Events:
         ApiEvent:
           Type: Api
@@ -50,6 +65,38 @@ Resources:
             Path: /{proxy+}
             Method: GET
             RestApiId: !Ref GeoApi
+
+  # Lambda: async worker that calls AgentCore and writes to DDB
+  GeoGeneratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: geo-content-generator
+      Handler: geo_generator.handler
+      Runtime: python3.10
+      CodeUri: lambda/
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          GEO_TABLE_NAME: !Ref TableName
+          AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+          AGENTCORE_REGION: !Ref "AWS::Region"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock-agentcore:InvokeAgentRuntime
+              Resource:
+                - !If
+                  - HasAgentArn
+                  - !Ref AgentRuntimeArn
+                  - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*"
+                - !If
+                  - HasAgentArn
+                  - !Sub "${AgentRuntimeArn}/runtime-endpoint/*"
+                  - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*/runtime-endpoint/*"
 
   # API Gateway
   GeoApi:
@@ -64,3 +111,6 @@ Outputs:
   TableName:
     Description: DynamoDB table name
     Value: !Ref GeoContentTable
+  GeneratorFunctionName:
+    Description: Async generator Lambda function name
+    Value: !Ref GeoGeneratorFunction

@@ -11,14 +11,14 @@ agents:
     container_runtime: null
     source_path: /Users/yushengh/Documents/SA/SourceCodes/python/geoagent/src
     aws:
-      execution_role: null
-      execution_role_auto_create: true
+      execution_role: arn:aws:iam::023268648855:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-18a0c65da6
+      execution_role_auto_create: false
       account: 023268648855
       region: us-east-1
       ecr_repository: null
       ecr_auto_create: false
-      s3_path: null
-      s3_auto_create: true
+      s3_path: s3://bedrock-agentcore-codebuild-sources-023268648855-us-east-1
+      s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
         network_mode_config: null
@@ -30,21 +30,21 @@ agents:
         idle_runtime_session_timeout: null
         max_lifetime: null
     bedrock_agentcore:
-      agent_id: geo_agent-CbuCFP3eNV
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:718498700052:runtime/geo_agent-CbuCFP3eNV
-      agent_session_id: f118bc7c-cc82-47e1-9e3e-7456e91f7f57
+      agent_id: geo_agent-XigVMZC5tE
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:023268648855:runtime/geo_agent-XigVMZC5tE
+      agent_session_id: null
     codebuild:
       project_name: null
       execution_role: null
       source_bucket: null
     memory:
       mode: STM_ONLY
-      memory_id: null
-      memory_arn: null
-      memory_name: geo_agent_memory
+      memory_id: geo_agent_mem-T4wEm9Hzzp
+      memory_arn: arn:aws:bedrock-agentcore:us-east-1:023268648855:memory/geo_agent_mem-T4wEm9Hzzp
+      memory_name: geo_agent_mem
       event_expiry_days: 30
-      first_invoke_memory_check_done: false
-      was_created_by_toolkit: false
+      first_invoke_memory_check_done: true
+      was_created_by_toolkit: true
     identity:
       credential_providers: []
       workload: null

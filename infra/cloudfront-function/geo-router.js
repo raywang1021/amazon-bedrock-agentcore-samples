@@ -52,6 +52,11 @@ function handler(event) {
     }
   }
 
+  // Allow testing via querystring: ?ua=genaibot
+  if (!isAiBot && request.querystring && request.querystring.ua && request.querystring.ua.value === 'genaibot') {
+    isAiBot = true;
+  }
+
   if (isAiBot) {
     // Add header so origin can identify this was an AI bot request
     request.headers['x-geo-bot'] = { value: 'true' };
