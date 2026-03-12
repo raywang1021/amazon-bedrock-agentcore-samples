@@ -67,12 +67,117 @@ agentcore invoke --dev "What can you do"
 
 # Deployment
 
-If you want to customize your project, you can first run `agentcore configure` before deploying. Otherwise, the default project settings
-will work out of the box.
+## AgentCore Agent
 
-After providing credentials, `agentcore deploy` will deploy your project into Amazon Bedrock AgentCore.
+```bash
+agentcore deploy
+```
 
-Use `agentcore invoke` to invoke your deployed agent.
+部署 GEO agent 到 Bedrock AgentCore（us-east-1）。部署後可用 `agentcore invoke` 呼叫。
+
+Agent ARN 會寫入 `.bedrock_agentcore.yaml`，Lambda 需要這個 ARN 來觸發 agent 產生 GEO 內容。
+
+## Edge Serving Infrastructure
+
+### 1. Backend（DynamoDB + Lambda + API Gateway）
+
+```bash
+sam build --template infra/template.yaml
+sam deploy --template infra/template.yaml \
+  --stack-name geo-backend \
+  --region us-east-1 \
+  --resolve-s3 \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    AgentRuntimeArn=<AGENT_ARN> \
+    DefaultOriginHost=alb.kgg23.com
+```
+
+這會建立：
+- DynamoDB table `geo-content`
+- `geo-content-handler` Lambda（服務 GEO 內容 + 觸發產生）
+- `geo-content-generator` Lambda（非同步呼叫 AgentCore 產生 GEO 內容）
+- API Gateway endpoint
+
+### 2. CloudFront Function
+
+```bash
+aws cloudformation deploy \
+  --template-file infra/cloudfront-function/template.yaml \
+  --stack-name geo-cf-function \
+  --region us-east-1 \
+  --parameter-overrides GeoApiDomain=<API_GW_DOMAIN>
+```
+
+或手動在 CloudFront console 更新 `geo-bot-router` function 的代碼（`infra/cloudfront-function/geo-router.js`）。
+
+### 3. 手動設定（CloudFront console）
+
+- 將 CF Function 掛到 distribution 的 viewer-request event
+- 建立 cache policy `geo-bot-aware-cache`，cache key 包含 `x-geo-bot` header 和 `ua` querystring
+- 將 cache policy 套用到 distribution
+
+## Edge Serving 架構
+
+```
+AI Bot 訪問網站
+      │
+      ▼
+┌──────────────────┐
+│ CloudFront       │
+│ (CDN)            │
+└────────┬─────────┘
+         │
+┌────────▼─────────┐
+│ CF Function      │
+│ geo-bot-router   │
+│ 偵測 User-Agent  │
+│ 或 ?ua=genaibot  │
+└───┬─────────┬────┘
+    │         │
+  AI Bot   一般使用者
+    │         │
+    ▼         ▼
+┌────────┐  原本 Origin
+│ API GW │  (不變)
+│+Lambda │
+└───┬────┘
+    │
+    ▼ 查 DDB
+┌──────────────────────────────────┐
+│ status=ready → 回傳 GEO 內容     │
+│ status=processing → 回原始內容   │
+│ 無資料 → 標記 processing         │
+│          + 非同步觸發 generator  │
+│          + 回原始內容            │
+└──────────────────────────────────┘
+```
+
+## Cache Miss 模式
+
+Lambda 支援三種 cache miss 處理模式，透過 querystring `?mode=` 切換：
+
+| 模式 | querystring | 行為 | 適用場景 |
+|------|------------|------|---------|
+| passthrough（預設）| 無 或 `?mode=passthrough` | 回原始內容 + 非同步產生 | 正式環境，bot 不會空手而歸 |
+| async | `?mode=async` | 回 202 + 非同步產生 | 測試用 |
+| sync | `?mode=sync` | 等 AgentCore 產生完才回 | 測試用，需較長 timeout |
+
+## 測試
+
+```bash
+# 模擬 AI bot（透過 querystring）
+curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot"
+
+# 模擬 AI bot + async 模式
+curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot&mode=async"
+
+# 模擬 AI bot + sync 模式
+curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot&mode=sync"
+
+# 直接打 API Gateway
+curl "https://<API_GW>/prod/world/3149599"
+```
 
 # FAQ
 

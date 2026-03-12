@@ -86,25 +86,32 @@ def handler(event, context):
         print(f"DDB read failed: {e}")
         item = None
 
-    if item:
-        # Update with generation timing
+    now = datetime.now(timezone.utc).isoformat()
+
+    if item and item.get("geo_content"):
+        # Agent stored content — update status + timing
         try:
             table.update_item(
                 Key={"url_path": url_path},
-                UpdateExpression="SET generation_duration_ms = :d",
-                ExpressionAttributeValues={":d": Decimal(str(duration_ms))},
+                UpdateExpression="SET #s = :s, generation_duration_ms = :d, updated_at = :u",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":s": "ready",
+                    ":d": Decimal(str(duration_ms)),
+                    ":u": now,
+                },
             )
         except Exception as e:
-            print(f"Failed to update timing: {e}")
+            print(f"Failed to update status: {e}")
 
         print(f"GEO content ready for {url_path} ({duration_ms}ms)")
         return {"status": "success", "url_path": url_path, "duration_ms": duration_ms}
 
     # Agent didn't store in DDB — store the raw response ourselves
-    now = datetime.now(timezone.utc).isoformat()
     try:
         table.put_item(Item={
             "url_path": url_path,
+            "status": "ready",
             "geo_content": agent_response,
             "content_type": "text/html; charset=utf-8",
             "original_url": original_url,
@@ -115,6 +122,11 @@ def handler(event, context):
         print(f"Stored raw agent response for {url_path} ({duration_ms}ms)")
     except Exception as e:
         print(f"Failed to store content: {e}")
+        # Reset status so it can be retried
+        try:
+            table.delete_item(Key={"url_path": url_path})
+        except Exception:
+            pass
         return {"status": "failed", "url_path": url_path}
 
     return {"status": "success", "url_path": url_path, "duration_ms": duration_ms}

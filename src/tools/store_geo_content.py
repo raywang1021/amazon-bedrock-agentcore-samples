@@ -89,6 +89,7 @@ Do NOT wrap your output in ```html or ``` markers."""
 
     table.put_item(Item={
         "url_path": url_path,
+        "status": "ready",
         "geo_content": geo_content,
         "content_type": "text/html; charset=utf-8",
         "original_url": url,

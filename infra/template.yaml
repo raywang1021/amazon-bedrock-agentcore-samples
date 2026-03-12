@@ -47,17 +47,32 @@ Resources:
       Runtime: python3.10
       CodeUri: lambda/
       MemorySize: 256
-      Timeout: 10
+      Timeout: 60
       Environment:
         Variables:
           GEO_TABLE_NAME: !Ref TableName
           GENERATOR_FUNCTION_NAME: !Ref GeoGeneratorFunction
           DEFAULT_ORIGIN_HOST: !Ref DefaultOriginHost
+          AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+          AGENTCORE_REGION: !Ref "AWS::Region"
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref TableName
         - LambdaInvokePolicy:
             FunctionName: !Ref GeoGeneratorFunction
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock-agentcore:InvokeAgentRuntime
+              Resource:
+                - !If
+                  - HasAgentArn
+                  - !Ref AgentRuntimeArn
+                  - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*"
+                - !If
+                  - HasAgentArn
+                  - !Sub "${AgentRuntimeArn}/runtime-endpoint/*"
+                  - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*/runtime-endpoint/*"
       Events:
         ApiEvent:
           Type: Api
