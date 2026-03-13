@@ -35,9 +35,9 @@ var AI_BOT_PATTERNS = [
 ];
 
 // --- Configuration ---
-// Replace with your API Gateway domain for GEO content
-var GEO_ORIGIN_DOMAIN = 'h77cl56kzg.execute-api.us-east-1.amazonaws.com';
-var GEO_ORIGIN_PATH = '/prod';
+// Lambda Function URL for GEO content (no stage path needed)
+var GEO_ORIGIN_DOMAIN = 's3nfxuhskmxt73okobizyeb64i0fwoeh.lambda-url.us-east-1.on.aws';
+var GEO_ORIGIN_PATH = '';
 
 function handler(event) {
   var request = event.request;

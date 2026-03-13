@@ -4,11 +4,11 @@ Description: CloudFront Function for GEO bot routing
 Parameters:
   GeoApiDomain:
     Type: String
-    Description: API Gateway domain (e.g. abc123.execute-api.us-east-1.amazonaws.com)
+    Description: Origin domain for GEO content (Lambda Function URL or API Gateway domain)
   GeoApiPath:
     Type: String
-    Default: /prod
-    Description: API Gateway stage path
+    Default: ''
+    Description: Origin path (empty for Lambda Function URL, /prod for API Gateway)
 
 Resources:
   GeoRouterFunction:

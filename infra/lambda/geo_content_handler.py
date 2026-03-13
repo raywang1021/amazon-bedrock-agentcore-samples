@@ -119,7 +119,8 @@ def _invoke_agentcore_sync(url):
 
 
 def handler(event, context):
-    path = event.get("path") or "/"
+    # Support both API GW proxy and Lambda Function URL event formats
+    path = event.get("rawPath") or event.get("path") or "/"
     mode = _get_mode(event)
     original_url = _get_original_url(event, path)
 
