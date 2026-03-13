@@ -17,6 +17,10 @@ Parameters:
     Type: String
     Default: ""
     Description: Default origin host for reconstructing original URLs
+  OriginVerifySecret:
+    Type: String
+    Default: "geo-agent-cf-origin-2026"
+    Description: Shared secret between CloudFront and Lambda for origin verification
 
 Conditions:
   HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
@@ -57,6 +61,7 @@ Resources:
           DEFAULT_ORIGIN_HOST: !Ref DefaultOriginHost
           AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
           AGENTCORE_REGION: !Ref "AWS::Region"
+          ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TableName

@@ -38,6 +38,7 @@ var AI_BOT_PATTERNS = [
 // Lambda Function URL for GEO content (no stage path needed)
 var GEO_ORIGIN_DOMAIN = 's3nfxuhskmxt73okobizyeb64i0fwoeh.lambda-url.us-east-1.on.aws';
 var GEO_ORIGIN_PATH = '';
+var ORIGIN_VERIFY_SECRET = 'geo-agent-cf-origin-2026';
 
 function handler(event) {
   var request = event.request;
@@ -61,8 +62,9 @@ function handler(event) {
     // Add header so origin can identify this was an AI bot request
     request.headers['x-geo-bot'] = { value: 'true' };
     request.headers['x-geo-bot-ua'] = { value: userAgent };
+    request.headers['x-origin-verify'] = { value: ORIGIN_VERIFY_SECRET };
 
-    // Switch origin to API Gateway that serves GEO content from DynamoDB
+    // Switch origin to Lambda Function URL that serves GEO content from DynamoDB
     cf.updateRequestOrigin({
       domainName: GEO_ORIGIN_DOMAIN,
       originPath: GEO_ORIGIN_PATH,

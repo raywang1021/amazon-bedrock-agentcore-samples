@@ -27,6 +27,7 @@ GENERATOR_FUNCTION_NAME = os.environ.get("GENERATOR_FUNCTION_NAME", "")
 DEFAULT_ORIGIN_HOST = os.environ.get("DEFAULT_ORIGIN_HOST", "")
 AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN", "")
 AGENTCORE_REGION = os.environ.get("AGENTCORE_REGION", "us-east-1")
+ORIGIN_VERIFY_SECRET = os.environ.get("ORIGIN_VERIFY_SECRET", "geo-agent-cf-origin-2026")
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(TABLE_NAME)
@@ -120,6 +121,11 @@ def _invoke_agentcore_sync(url):
 
 def handler(event, context):
     handler_start = time.time()
+
+    # Verify request comes from CloudFront
+    headers = event.get("headers") or {}
+    if headers.get("x-origin-verify") != ORIGIN_VERIFY_SECRET:
+        return _error(403, "Forbidden")
 
     # Support both API GW proxy and Lambda Function URL event formats
     path = event.get("rawPath") or event.get("path") or "/"
