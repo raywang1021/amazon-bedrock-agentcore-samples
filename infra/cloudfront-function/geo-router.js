@@ -35,10 +35,10 @@ var AI_BOT_PATTERNS = [
 ];
 
 // --- Configuration ---
-// Lambda Function URL for GEO content (no stage path needed)
-var GEO_ORIGIN_DOMAIN = 's3nfxuhskmxt73okobizyeb64i0fwoeh.lambda-url.us-east-1.on.aws';
-var GEO_ORIGIN_PATH = '';
-var ORIGIN_VERIFY_SECRET = 'geo-agent-cf-origin-2026';
+// ALB origin ID — pre-configured in CloudFront distribution (HTTP only, port 80)
+// ALB protected by Security Group (CloudFront managed prefix list)
+// x-origin-verify custom header configured on origin (defense-in-depth)
+var GEO_ORIGIN_ID = 'geo-alb-origin';
 
 function handler(event) {
   var request = event.request;
@@ -62,16 +62,9 @@ function handler(event) {
     // Add header so origin can identify this was an AI bot request
     request.headers['x-geo-bot'] = { value: 'true' };
     request.headers['x-geo-bot-ua'] = { value: userAgent };
-    request.headers['x-origin-verify'] = { value: ORIGIN_VERIFY_SECRET };
 
-    // Switch origin to Lambda Function URL that serves GEO content from DynamoDB
-    cf.updateRequestOrigin({
-      domainName: GEO_ORIGIN_DOMAIN,
-      originPath: GEO_ORIGIN_PATH,
-      originAccessControlConfig: {
-        enabled: false,
-      },
-    });
+    // Switch origin to ALB (pre-configured in distribution as HTTP origin)
+    cf.selectRequestOriginById(GEO_ORIGIN_ID);
   }
 
   return request;

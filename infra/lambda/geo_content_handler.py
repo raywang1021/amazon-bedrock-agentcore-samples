@@ -127,8 +127,8 @@ def handler(event, context):
     if headers.get("x-origin-verify") != ORIGIN_VERIFY_SECRET:
         return _error(403, "Forbidden")
 
-    # Support both API GW proxy and Lambda Function URL event formats
-    path = event.get("rawPath") or event.get("path") or "/"
+    # Support ALB event format
+    path = event.get("path") or "/"
     mode = _get_mode(event)
     original_url = _get_original_url(event, path)
 

@@ -20,11 +20,17 @@
        │                           └───┬─────────┬────┘
        │ 寫入                          │         │
        ▼                          AI Bot│    一般使用者
-┌──────────────┐                       ▼         ▼
-│ DynamoDB     │              ┌────────────┐  原本 Origin
-│ geo-content  │◄─────────────│ Lambda     │  (不變)
-└──────────────┘   Lambda 讀取 │ Function   │
-                              │ URL        │
+┌──────────────┐                       │         ▼
+│ DynamoDB     │                       ▼    原本 Origin
+│ geo-content  │              ┌────────────┐  (不變)
+└──────┬───────┘              │ ALB        │
+       ▲                      │ SG: CF     │
+       │                      │ prefix list│
+       │                      └─────┬──────┘
+       │                            │
+       │                      ┌─────▼──────┐
+       └──────────────────────│ Lambda     │
+                  Lambda 讀取  │ handler    │
                               └────────────┘
 ```
 
@@ -95,7 +101,7 @@ User          AgentCore      Strands Agent   Claude (Main)   evaluate_geo_score 
 
 ## Edge Serving 流程
 
-AI bot 訪問網站時，CloudFront Function 偵測 User-Agent 並切換 origin 到 Lambda Function URL。
+AI bot 訪問網站時，CloudFront Function 偵測 User-Agent 並透過 `selectRequestOriginById()` 切換到預先設定的 ALB origin。
 
 ### Passthrough 模式（預設）
 
@@ -104,6 +110,7 @@ sequenceDiagram
     participant Bot as AI Bot
     participant CF as CloudFront
     participant CFF as CF Function
+    participant ALB as ALB (SG: CF prefix list)
     participant Lambda as geo-content-handler
     participant DDB as DynamoDB
     participant Gen as geo-content-generator
@@ -112,7 +119,9 @@ sequenceDiagram
     Bot->>CF: GET /world/3149600
     CF->>CFF: viewer-request
     CFF->>CFF: 偵測 AI bot User-Agent
-    CFF->>Lambda: 切換 origin + x-origin-verify header
+    CFF->>ALB: selectRequestOriginById('geo-alb-origin')
+    Note over ALB: origin 自帶 x-origin-verify header
+    ALB->>Lambda: forward request
     Lambda->>DDB: get_item(url_path)
 
     alt status=ready (cache hit)
@@ -125,8 +134,8 @@ sequenceDiagram
         Lambda->>Lambda: fetch 原始網頁
         Lambda-->>Bot: 200 + 原始 HTML
         Gen->>AC: invoke_agent_runtime
-        AC-->>Gen: GEO 內容
-        Gen->>DDB: put_item(status=ready)
+        AC-->>Gen: GEO 內容（agent 寫入 DDB）
+        Gen->>DDB: update(status=ready, timing metrics)
     end
 ```
 
@@ -198,9 +207,17 @@ Lambda 回傳的 response 會帶以下自訂 header：
 
 ## Origin 保護
 
-目前使用 custom header 驗證：CFF 加上 `x-origin-verify` header，Lambda 檢查是否匹配。不匹配回 403。
+採用雙層保護機制：
 
-後續計畫改用 CloudFront OAC（Origin Access Control），Lambda Function URL 設 `AuthType: AWS_IAM`，由 CloudFront 用 SigV4 簽署 request。
+1. 網路層：ALB Security Group 只允許 CloudFront managed prefix list（`com.amazonaws.global.cloudfront.origin-facing`）的 IP 存取，非 CloudFront 流量在網路層就被擋掉
+2. 應用層（defense-in-depth）：CloudFront origin 設定自帶 `x-origin-verify` custom header，Lambda 驗證是否匹配，防止其他人的 CloudFront distribution 打你的 ALB
+
+如果不需要 ALB，也可以直接用 Lambda Function URL + custom header 驗證（移除 ALB 相關資源即可）。
+
+### 替代方案
+
+- CloudFront OAC（Origin Access Control）：可在 CFF 的 `updateRequestOrigin()` 中帶 `originAccessControlConfig` 參數啟用 SigV4 簽署。Lambda Function URL 設 `AuthType: AWS_IAM`。目前未採用，留作 backlog。
+- 純 ALB + custom header：移除 ALB，Lambda 只透過 ALB 存取。`x-origin-verify` 提供應用層保護。
 
 ## CloudFront Function 偵測邏輯
 
@@ -210,5 +227,6 @@ Lambda 回傳的 response 會帶以下自訂 header：
 2. Querystring 模擬：`?ua=genaibot` 用於測試
 
 偵測到後，CFF 會：
-- 加上 `x-geo-bot: true`、`x-geo-bot-ua`、`x-origin-verify` header
-- 透過 `cf.updateRequestOrigin()` 將 request 導向 Lambda Function URL
+- 加上 `x-geo-bot: true`、`x-geo-bot-ua` header
+- 透過 `cf.selectRequestOriginById('geo-alb-origin')` 切換到預先設定的 ALB origin
+- `x-origin-verify` header 由 CloudFront origin custom header 自動帶入，CFF 不處理
