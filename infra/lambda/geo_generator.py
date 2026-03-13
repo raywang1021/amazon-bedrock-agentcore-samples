@@ -64,6 +64,7 @@ def _invoke_agentcore(url: str) -> str | None:
 
 def handler(event, context):
     """Async handler: generate GEO content and store in DDB."""
+    generator_start = time.time()
     url_path = event.get("url_path", "/")
     original_url = event.get("original_url", url_path)
 
@@ -71,7 +72,7 @@ def handler(event, context):
 
     start_time = time.time()
     agent_response = _invoke_agentcore(original_url)
-    duration_ms = int((time.time() - start_time) * 1000)
+    agent_duration_ms = int((time.time() - start_time) * 1000)
 
     if not agent_response:
         print(f"AgentCore returned no content for {url_path}")
@@ -87,25 +88,28 @@ def handler(event, context):
         item = None
 
     now = datetime.now(timezone.utc).isoformat()
+    generator_duration_ms = int((time.time() - generator_start) * 1000)
 
     if item and item.get("geo_content"):
         # Agent stored content — update status + timing
         try:
             table.update_item(
                 Key={"url_path": url_path},
-                UpdateExpression="SET #s = :s, generation_duration_ms = :d, updated_at = :u",
-                ExpressionAttributeNames={"#s": "status"},
+                UpdateExpression="SET #s = :s, generation_duration_ms = :d, generator_duration_ms = :gd, #m = :mode, updated_at = :u",
+                ExpressionAttributeNames={"#s": "status", "#m": "mode"},
                 ExpressionAttributeValues={
                     ":s": "ready",
-                    ":d": Decimal(str(duration_ms)),
+                    ":d": Decimal(str(agent_duration_ms)),
+                    ":gd": Decimal(str(generator_duration_ms)),
+                    ":mode": "async",
                     ":u": now,
                 },
             )
         except Exception as e:
             print(f"Failed to update status: {e}")
 
-        print(f"GEO content ready for {url_path} ({duration_ms}ms)")
-        return {"status": "success", "url_path": url_path, "duration_ms": duration_ms}
+        print(f"GEO content ready for {url_path} (agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)")
+        return {"status": "success", "url_path": url_path, "agent_duration_ms": agent_duration_ms, "generator_duration_ms": generator_duration_ms}
 
     # Agent didn't store in DDB — store the raw response ourselves
     try:
@@ -117,9 +121,11 @@ def handler(event, context):
             "original_url": original_url,
             "created_at": now,
             "updated_at": now,
-            "generation_duration_ms": Decimal(str(duration_ms)),
+            "generation_duration_ms": Decimal(str(agent_duration_ms)),
+            "generator_duration_ms": Decimal(str(generator_duration_ms)),
+            "mode": "async",
         })
-        print(f"Stored raw agent response for {url_path} ({duration_ms}ms)")
+        print(f"Stored raw agent response for {url_path} (agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)")
     except Exception as e:
         print(f"Failed to store content: {e}")
         # Reset status so it can be retried
@@ -129,4 +135,4 @@ def handler(event, context):
             pass
         return {"status": "failed", "url_path": url_path}
 
-    return {"status": "success", "url_path": url_path, "duration_ms": duration_ms}
+    return {"status": "success", "url_path": url_path, "agent_duration_ms": agent_duration_ms, "generator_duration_ms": generator_duration_ms}

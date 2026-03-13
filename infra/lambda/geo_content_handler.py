@@ -119,6 +119,8 @@ def _invoke_agentcore_sync(url):
 
 
 def handler(event, context):
+    handler_start = time.time()
+
     # Support both API GW proxy and Lambda Function URL event formats
     path = event.get("rawPath") or event.get("path") or "/"
     mode = _get_mode(event)
@@ -134,6 +136,7 @@ def handler(event, context):
 
     # Cache hit — ready
     if item and item.get("status") == "ready":
+        handler_ms = int((time.time() - handler_start) * 1000)
         ct = item.get("content_type", "text/html")
         if "charset" not in ct.lower():
             ct += "; charset=utf-8"
@@ -142,6 +145,7 @@ def handler(event, context):
             "X-GEO-Optimized": "true",
             "X-GEO-Source": "cache",
             "X-GEO-Created": item.get("created_at", ""),
+            "X-GEO-Handler-Ms": str(handler_ms),
             "Cache-Control": "public, max-age=3600",
         }
         dur = item.get("generation_duration_ms")
@@ -151,13 +155,13 @@ def handler(event, context):
 
     # Still processing
     if item and item.get("status") == "processing":
-        return _passthrough_or_202(mode, original_url, path, already_triggered=True)
+        return _passthrough_or_202(mode, original_url, path, already_triggered=True, handler_start=handler_start)
 
     # --- Cache miss ---
-    return _passthrough_or_202(mode, original_url, path, already_triggered=False)
+    return _passthrough_or_202(mode, original_url, path, already_triggered=False, handler_start=handler_start)
 
 
-def _passthrough_or_202(mode, original_url, path, already_triggered):
+def _passthrough_or_202(mode, original_url, path, already_triggered, handler_start):
     """Handle cache miss or processing state based on mode."""
 
     if mode == "sync":
@@ -166,7 +170,7 @@ def _passthrough_or_202(mode, original_url, path, already_triggered):
             _mark_processing(path, original_url)
         start = time.time()
         _invoke_agentcore_sync(original_url)
-        duration_ms = int((time.time() - start) * 1000)
+        agent_duration_ms = int((time.time() - start) * 1000)
 
         # Re-read DDB — agent should have stored content
         try:
@@ -175,12 +179,19 @@ def _passthrough_or_202(mode, original_url, path, already_triggered):
         except Exception:
             item = None
 
+        handler_ms = int((time.time() - handler_start) * 1000)
+
         if item and item.get("status") == "ready":
             try:
                 table.update_item(
                     Key={"url_path": path},
-                    UpdateExpression="SET generation_duration_ms = :d",
-                    ExpressionAttributeValues={":d": Decimal(str(duration_ms))},
+                    UpdateExpression="SET generation_duration_ms = :d, handler_duration_ms = :h, #m = :mode",
+                    ExpressionAttributeNames={"#m": "mode"},
+                    ExpressionAttributeValues={
+                        ":d": Decimal(str(agent_duration_ms)),
+                        ":h": Decimal(str(handler_ms)),
+                        ":mode": "sync",
+                    },
                 )
             except Exception:
                 pass
@@ -190,21 +201,27 @@ def _passthrough_or_202(mode, original_url, path, already_triggered):
                     "Content-Type": "text/html; charset=utf-8",
                     "X-GEO-Optimized": "true",
                     "X-GEO-Source": "generated",
-                    "X-GEO-Duration-Ms": str(duration_ms),
+                    "X-GEO-Duration-Ms": str(agent_duration_ms),
+                    "X-GEO-Handler-Ms": str(handler_ms),
                     "Cache-Control": "public, max-age=3600",
                 },
                 "body": item.get("geo_content", ""),
             }
         # Sync failed — fall through to passthrough
-        return _do_passthrough(original_url, path)
+        return _do_passthrough(original_url, path, handler_start)
 
     if mode == "async":
         if not already_triggered:
             _mark_processing(path, original_url)
             _trigger_async(path, original_url)
+        handler_ms = int((time.time() - handler_start) * 1000)
         return {
             "statusCode": 202,
-            "headers": {"Content-Type": "application/json", "Cache-Control": "no-cache"},
+            "headers": {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache",
+                "X-GEO-Handler-Ms": str(handler_ms),
+            },
             "body": json.dumps({
                 "status": "generating",
                 "message": f"GEO content for {path} is being generated. Please retry shortly.",
@@ -215,17 +232,19 @@ def _passthrough_or_202(mode, original_url, path, already_triggered):
     if not already_triggered:
         _mark_processing(path, original_url)
         _trigger_async(path, original_url)
-    return _do_passthrough(original_url, path)
+    return _do_passthrough(original_url, path, handler_start)
 
 
-def _do_passthrough(original_url, path):
+def _do_passthrough(original_url, path, handler_start):
     body, ct = _fetch_original(original_url)
+    handler_ms = int((time.time() - handler_start) * 1000)
     if body:
         return {
             "statusCode": 200,
             "headers": {
                 "Content-Type": ct or "text/html; charset=utf-8",
                 "X-GEO-Source": "passthrough",
+                "X-GEO-Handler-Ms": str(handler_ms),
                 "Cache-Control": "no-cache",
             },
             "body": body,
