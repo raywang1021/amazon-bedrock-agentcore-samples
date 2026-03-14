@@ -1,5 +1,29 @@
 # 部署指南
 
+## 部署者所需 IAM 權限
+
+部署本系統需要以下 IAM 權限，請確認部署者的 IAM user/role 具備：
+
+| 服務 | 權限 | 用途 |
+|------|------|------|
+| CloudFormation | `cloudformation:*` | SAM deploy 建立/更新 stack |
+| S3 | `s3:*` on SAM bucket | SAM 上傳 artifact |
+| Lambda | `lambda:*` | 建立/更新 Lambda 函數 |
+| DynamoDB | `dynamodb:*` on `geo-content` | 建立 table、CRUD |
+| IAM | `iam:CreateRole`, `iam:AttachRolePolicy`, `iam:PassRole` | Lambda execution role |
+| CloudFront | `cloudfront:CreateDistribution`, `cloudfront:UpdateDistribution` | 建立/更新 distribution |
+| CloudFront | `cloudfront:CreateInvalidation` | 清除 CF 快取（purge 後需搭配使用） |
+| CloudFront | `cloudfront:*Function*` | 建立/更新/發布 CFF |
+| CloudFront | `cloudfront:*OriginAccessControl*` | OAC 模式 |
+| EC2 | `ec2:*` | ALB 模式：VPC、Subnet、SG |
+| ELB | `elasticloadbalancing:*` | ALB 模式 |
+| Bedrock AgentCore | `bedrock-agentcore:*` | AgentCore deploy/invoke |
+
+最小權限原則：
+- 只用 OAC 模式 → 不需 EC2、ELB 權限
+- 只用 ALB 模式 → 不需 `cloudfront:*OriginAccessControl*`
+- 不需手動清 CF 快取 → 不需 `cloudfront:CreateInvalidation`
+
 ## AgentCore Agent
 
 ```bash
@@ -153,6 +177,26 @@ curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"
 ```
 
 ## 端到端測試
+
+### CloudFront 快取清除
+
+DDB purge（`?purge=true`）只清 DDB 記錄，不清 CF 快取。若需立即生效，需搭配 CF invalidation：
+
+```bash
+# 清除特定路徑
+aws cloudfront create-invalidation \
+  --distribution-id <DIST_ID> \
+  --paths "/world/3149600"
+
+# 清除全部
+aws cloudfront create-invalidation \
+  --distribution-id <DIST_ID> \
+  --paths "/*"
+```
+
+注意：每月前 1,000 個 invalidation path 免費，超過後每個 path $0.005。
+
+### 測試指令
 
 ```bash
 bash test/e2e_test.sh [CF_DOMAIN] [ALB_DNS]
