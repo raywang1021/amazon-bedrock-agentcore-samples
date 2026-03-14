@@ -20,6 +20,10 @@ Parameters:
     Type: String
     Default: "news.tvbs.com.tw"
     Description: Default origin for non-GEO paths (customer origin site)
+  CfDistributionId:
+    Type: String
+    Default: ""
+    Description: CloudFront distribution ID for cache invalidation on purge
 
 Conditions:
   HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
@@ -48,11 +52,16 @@ Resources:
           AGENTCORE_REGION: !Ref "AWS::Region"
           ORIGIN_VERIFY_SECRET: "geo-agent-cf-origin-2026"
           GEO_TTL_SECONDS: "86400"
+          CF_DISTRIBUTION_ID: !Ref CfDistributionId
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TableName
         - LambdaInvokePolicy:
             FunctionName: !Ref OacTestGenerator
+        - Statement:
+            - Effect: Allow
+              Action: cloudfront:CreateInvalidation
+              Resource: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
         - Statement:
             - Effect: Allow
               Action: bedrock-agentcore:InvokeAgentRuntime
@@ -199,6 +208,43 @@ Resources:
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !Sub "arn:aws:cloudfront::${AWS::AccountId}:function/geo-bot-router-oac"
+
+  # ============================================================
+  # CloudWatch Alarms
+  # ============================================================
+  GeneratorErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: geo-generator-errors
+      AlarmDescription: GEO generator Lambda error rate > 3 in 5 minutes
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref OacTestGenerator
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  HandlerP99LatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: geo-handler-p99-latency
+      AlarmDescription: GEO handler Lambda P99 duration > 10s
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref OacTestHandler
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
 
 Outputs:
   DistributionDomain:

@@ -334,6 +334,7 @@ Resources:
           AGENTCORE_REGION: !Ref "AWS::Region"
           ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
           GEO_TTL_SECONDS: "86400"
+          CF_DISTRIBUTION_ID: ""
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TableName

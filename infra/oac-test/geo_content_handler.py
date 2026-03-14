@@ -37,6 +37,8 @@ AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN", "")
 AGENTCORE_REGION = os.environ.get("AGENTCORE_REGION", "us-east-1")
 ORIGIN_VERIFY_SECRET = os.environ.get("ORIGIN_VERIFY_SECRET", "geo-agent-cf-origin-2026")
 GEO_TTL_SECONDS = int(os.environ.get("GEO_TTL_SECONDS", "86400"))  # 24h default
+PROCESSING_TIMEOUT_SECONDS = int(os.environ.get("PROCESSING_TIMEOUT_SECONDS", "300"))  # 5min default
+CF_DISTRIBUTION_ID = os.environ.get("CF_DISTRIBUTION_ID", "")
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(TABLE_NAME)
@@ -169,10 +171,14 @@ def handler(event, context):
         try:
             table.delete_item(Key={"url_path": path})
             print(f"Purged {path}")
+            cf_invalidated = _invalidate_cf_cache(path)
+            result = {"status": "purged", "url_path": path}
+            if cf_invalidated:
+                result["cf_invalidation"] = cf_invalidated
             return {
                 "statusCode": 200,
                 "headers": {"Content-Type": "application/json", "Cache-Control": "no-cache"},
-                "body": json.dumps({"status": "purged", "url_path": path}),
+                "body": json.dumps(result),
             }
         except Exception as e:
             return _error(500, f"Purge failed: {e}")
@@ -206,6 +212,14 @@ def handler(event, context):
 
     # Still processing
     if item and item.get("status") == "processing":
+        # Check if processing is stale (exceeded timeout)
+        if _is_processing_stale(item):
+            print(f"Stale processing record for {path}, resetting")
+            try:
+                table.delete_item(Key={"url_path": path})
+            except Exception:
+                pass
+            return _passthrough_or_202(mode, original_url, path, already_triggered=False, handler_start=handler_start, host=host)
         return _passthrough_or_202(mode, original_url, path, already_triggered=True, handler_start=handler_start, host=host)
 
     # --- Cache miss ---
@@ -345,6 +359,41 @@ def _is_text_content(content_type):
         "application/xml",
         "application/xhtml+xml",
     )
+
+
+def _is_processing_stale(item):
+    """Check if a processing record has exceeded the timeout."""
+    created_at = item.get("created_at", "")
+    if not created_at:
+        return True  # no timestamp = treat as stale
+    try:
+        created = datetime.fromisoformat(created_at)
+        age_seconds = (datetime.now(timezone.utc) - created).total_seconds()
+        return age_seconds > PROCESSING_TIMEOUT_SECONDS
+    except (ValueError, TypeError):
+        return True
+
+
+def _invalidate_cf_cache(path):
+    """Create CloudFront cache invalidation for the given path."""
+    if not CF_DISTRIBUTION_ID:
+        return None
+    try:
+        cf_client = boto3.client("cloudfront")
+        caller_ref = f"purge-{path}-{int(time.time())}"
+        resp = cf_client.create_invalidation(
+            DistributionId=CF_DISTRIBUTION_ID,
+            InvalidationBatch={
+                "Paths": {"Quantity": 1, "Items": [path]},
+                "CallerReference": caller_ref,
+            },
+        )
+        inv_id = resp["Invalidation"]["Id"]
+        print(f"CF invalidation created: {inv_id} for {path}")
+        return inv_id
+    except Exception as e:
+        print(f"CF invalidation failed (non-fatal): {e}")
+        return None
 
 
 def _error(code, msg):
