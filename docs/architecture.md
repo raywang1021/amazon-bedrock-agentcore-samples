@@ -302,6 +302,7 @@ Table: `geo-content`，partition key: `url_path` (S)
 | `generation_duration_ms` | N | AgentCore 產生 GEO 內容的純時間（ms） |
 | `handler_duration_ms` | N | handler Lambda 整體處理時間（sync mode 寫入） |
 | `generator_duration_ms` | N | generator Lambda 整體處理時間（async/passthrough mode 寫入） |
+| `host` | S | 來源 host（handler 取自 request header，agent 取自 URL netloc，供未來多租戶用） |
 | `ttl` | N | DynamoDB TTL（Unix timestamp） |
 
 ### 時間欄位說明

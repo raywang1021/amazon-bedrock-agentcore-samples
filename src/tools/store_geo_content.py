@@ -97,6 +97,7 @@ IMPORTANT RULES:
         "original_url": url,
         "content_type": "text/html; charset=utf-8",
         "generation_duration_ms": gen_duration_ms,
+        "host": parsed.netloc,
     }
 
     try:

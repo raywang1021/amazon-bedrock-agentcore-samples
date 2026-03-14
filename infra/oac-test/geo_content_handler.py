@@ -69,31 +69,37 @@ def _get_original_url(event, path):
     return f"https://{host}{path}" if host else path
 
 
-def _trigger_async(path, original_url):
+def _trigger_async(path, original_url, host=""):
     if not GENERATOR_FUNCTION_NAME:
         return
     try:
+        payload = {"url_path": path, "original_url": original_url}
+        if host:
+            payload["host"] = host
         lambda_client.invoke(
             FunctionName=GENERATOR_FUNCTION_NAME,
             InvocationType="Event",
-            Payload=json.dumps({"url_path": path, "original_url": original_url}),
+            Payload=json.dumps(payload),
         )
         print(f"Async generation triggered for {path}")
     except Exception as e:
         print(f"Failed to trigger generator: {e}")
 
 
-def _mark_processing(path, original_url):
+def _mark_processing(path, original_url, host=""):
     """Write a processing placeholder to DDB to prevent duplicate triggers."""
     try:
+        item = {
+            "url_path": path,
+            "status": "processing",
+            "original_url": original_url,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "ttl": _ttl_value(),
+        }
+        if host:
+            item["host"] = host
         table.put_item(
-            Item={
-                "url_path": path,
-                "status": "processing",
-                "original_url": original_url,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "ttl": _ttl_value(),
-            },
+            Item=item,
             ConditionExpression="attribute_not_exists(url_path)",
         )
         return True
@@ -156,6 +162,7 @@ def handler(event, context):
     path = event.get("rawPath") or event.get("path") or "/"
     mode = _get_mode(event)
     original_url = _get_original_url(event, path)
+    host = headers.get("x-forwarded-host") or headers.get("host") or ""
 
     # --- Purge ---
     if _is_purge(event):
@@ -199,13 +206,13 @@ def handler(event, context):
 
     # Still processing
     if item and item.get("status") == "processing":
-        return _passthrough_or_202(mode, original_url, path, already_triggered=True, handler_start=handler_start)
+        return _passthrough_or_202(mode, original_url, path, already_triggered=True, handler_start=handler_start, host=host)
 
     # --- Cache miss ---
-    return _passthrough_or_202(mode, original_url, path, already_triggered=False, handler_start=handler_start)
+    return _passthrough_or_202(mode, original_url, path, already_triggered=False, handler_start=handler_start, host=host)
 
 
-def _passthrough_or_202(mode, original_url, path, already_triggered, handler_start):
+def _passthrough_or_202(mode, original_url, path, already_triggered, handler_start, host=""):
     """Handle cache miss or processing state based on mode."""
 
     if mode == "sync":
@@ -225,7 +232,7 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
             }
         # Mark processing + invoke synchronously
         if not already_triggered:
-            _mark_processing(path, original_url)
+            _mark_processing(path, original_url, host)
         start = time.time()
         _invoke_agentcore_sync(original_url)
         agent_duration_ms = int((time.time() - start) * 1000)
@@ -270,8 +277,8 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
 
     if mode == "async":
         if not already_triggered:
-            _mark_processing(path, original_url)
-            _trigger_async(path, original_url)
+            _mark_processing(path, original_url, host)
+            _trigger_async(path, original_url, host)
         handler_ms = int((time.time() - handler_start) * 1000)
         return {
             "statusCode": 202,
@@ -302,8 +309,8 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
             "body": body,
         }
     if not already_triggered:
-        _mark_processing(path, original_url)
-        _trigger_async(path, original_url)
+        _mark_processing(path, original_url, host)
+        _trigger_async(path, original_url, host)
     return _do_passthrough_with_body(body, ct, path, handler_start)
 
 

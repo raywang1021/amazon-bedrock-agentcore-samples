@@ -55,6 +55,10 @@ def handler(event, context):
         "ttl": int(time.time()) + GEO_TTL_SECONDS,
     }
 
+    host = event.get("host")
+    if host:
+        item["host"] = host
+
     gen_ms = event.get("generation_duration_ms")
     if gen_ms is not None:
         from decimal import Decimal

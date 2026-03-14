@@ -68,6 +68,7 @@ def handler(event, context):
     generator_start = time.time()
     url_path = event.get("url_path", "/")
     original_url = event.get("original_url", url_path)
+    host = event.get("host", "")
 
     print(f"Generating GEO content for {original_url} (path: {url_path})")
 
@@ -115,7 +116,7 @@ def handler(event, context):
 
     # Agent didn't store in DDB — store the raw response ourselves
     try:
-        table.put_item(Item={
+        fallback_item = {
             "url_path": url_path,
             "status": "ready",
             "geo_content": agent_response,
@@ -127,7 +128,10 @@ def handler(event, context):
             "generator_duration_ms": Decimal(str(generator_duration_ms)),
             "mode": "async",
             "ttl": int(time.time()) + GEO_TTL_SECONDS,
-        })
+        }
+        if host:
+            fallback_item["host"] = host
+        table.put_item(Item=fallback_item)
         print(f"Stored raw agent response for {url_path} (agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)")
     except Exception as e:
         print(f"Failed to store content: {e}")
