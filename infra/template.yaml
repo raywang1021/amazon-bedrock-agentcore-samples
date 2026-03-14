@@ -388,6 +388,26 @@ Resources:
                   - !Sub "${AgentRuntimeArn}/runtime-endpoint/*"
                   - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*/runtime-endpoint/*"
 
+  # ============================================================
+  # Lambda: storage service — Agent writes DDB via this Lambda
+  # ============================================================
+  GeoStorageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: geo-content-storage
+      Handler: geo_storage.handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          GEO_TABLE_NAME: !Ref TableName
+          GEO_TTL_SECONDS: "86400"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TableName
+
 Outputs:
   OriginMode:
     Description: Active origin mode
@@ -398,6 +418,9 @@ Outputs:
   GeneratorFunctionName:
     Description: Async generator Lambda function name
     Value: !Ref GeoGeneratorFunction
+  StorageFunctionName:
+    Description: Storage Lambda function name (Agent writes DDB via this)
+    Value: !Ref GeoStorageFunction
   AlbDnsName:
     Condition: UseAlb
     Description: ALB DNS name

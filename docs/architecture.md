@@ -18,21 +18,48 @@
 │ - store_geo  │                   │ 偵測 User-Agent  │
 └──────┬───────┘                   │ 或 ?ua=genaibot  │
        │                           └───┬─────────┬────┘
-       │ 寫入                          │         │
+       │ lambda:InvokeFunction         │         │
        ▼                          AI Bot│    一般使用者
 ┌──────────────┐                       │         ▼
-│ DynamoDB     │                       ▼    原本 Origin
-│ geo-content  │              ┌────────────┐  (不變)
-└──────┬───────┘              │ ALB        │
-       ▲                      │ SG: CF     │
-       │                      │ prefix list│
-       │                      └─────┬──────┘
-       │                            │
-       │                      ┌─────▼──────┐
-       └──────────────────────│ Lambda     │
-                  Lambda 讀取  │ handler    │
-                              └────────────┘
+│ geo-content- │                       ▼    原本 Origin
+│ storage      │              ┌────────────┐  (不變)
+│ Lambda       │              │ ALB        │
+└──────┬───────┘              │ SG: CF     │
+       │ put_item             │ prefix list│
+       ▼                      └─────┬──────┘
+┌──────────────┐                    │
+│ DynamoDB     │              ┌─────▼──────┐
+│ geo-content  │              │ Lambda     │
+└──────┬───────┘              │ handler    │
+       ▲                      └────────────┘
 ```
+
+## Agent ↔ DynamoDB 解耦架構
+
+Agent 不直接存取 DynamoDB。`store_geo_content` tool 透過 `lambda:InvokeFunction` 呼叫 `geo-content-storage` Lambda，由該 Lambda 負責 DDB 寫入。
+
+```
+Agent (store_geo_content)
+    │
+    │ lambda:InvokeFunction
+    ▼
+┌──────────────────┐
+│ geo-content-     │
+│ storage Lambda   │
+│ (DDB CRUD)       │
+└────────┬─────────┘
+         │ put_item
+         ▼
+┌──────────────────┐
+│ DynamoDB         │
+│ geo-content      │
+└──────────────────┘
+```
+
+好處：
+- Agent 只需 `lambda:InvokeFunction`，不需 DDB 權限
+- DDB schema 變更不影響 Agent 程式碼
+- Storage Lambda 可獨立擴展、加 validation、加 logging
 
 ## Agent Tool 呼叫流程
 
