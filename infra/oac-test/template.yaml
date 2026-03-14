@@ -18,8 +18,8 @@ Parameters:
     Description: Main CloudFront domain for passthrough fetch (e.g. d1sv1ydutd4m98.cloudfront.net)
   DefaultOriginDomain:
     Type: String
-    Default: "www.example.com"
-    Description: Default origin for non-GEO paths (placeholder)
+    Default: "news.tvbs.com.tw"
+    Description: Default origin for non-GEO paths (customer origin site)
 
 Conditions:
   HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
