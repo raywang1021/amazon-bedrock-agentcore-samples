@@ -209,6 +209,20 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
     """Handle cache miss or processing state based on mode."""
 
     if mode == "sync":
+        # Pre-check: fetch original to verify it's text content
+        body, ct = _fetch_original(original_url)
+        if body and not _is_text_content(ct):
+            handler_ms = int((time.time() - handler_start) * 1000)
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": ct,
+                    "X-GEO-Source": "passthrough-skip",
+                    "X-GEO-Handler-Ms": str(handler_ms),
+                    "Cache-Control": "no-cache",
+                },
+                "body": body,
+            }
         # Mark processing + invoke synchronously
         if not already_triggered:
             _mark_processing(path, original_url)
@@ -273,14 +287,32 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
         }
 
     # Default: passthrough
+    # Fetch original first, skip GEO generation for non-text content
+    body, ct = _fetch_original(original_url)
+    if body and not _is_text_content(ct):
+        handler_ms = int((time.time() - handler_start) * 1000)
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": ct,
+                "X-GEO-Source": "passthrough-skip",
+                "X-GEO-Handler-Ms": str(handler_ms),
+                "Cache-Control": "no-cache",
+            },
+            "body": body,
+        }
     if not already_triggered:
         _mark_processing(path, original_url)
         _trigger_async(path, original_url)
-    return _do_passthrough(original_url, path, handler_start)
+    return _do_passthrough_with_body(body, ct, path, handler_start)
 
 
 def _do_passthrough(original_url, path, handler_start):
     body, ct = _fetch_original(original_url)
+    return _do_passthrough_with_body(body, ct, path, handler_start)
+
+
+def _do_passthrough_with_body(body, ct, path, handler_start):
     handler_ms = int((time.time() - handler_start) * 1000)
     if body:
         return {
@@ -294,6 +326,18 @@ def _do_passthrough(original_url, path, handler_start):
             "body": body,
         }
     return _error(502, f"Failed to fetch original content for {path}")
+
+
+def _is_text_content(content_type):
+    """Check if content-type is text-based (HTML, plain text, XML, JSON, etc.)."""
+    if not content_type:
+        return True  # assume text if unknown
+    ct_lower = content_type.lower().split(";")[0].strip()
+    return ct_lower.startswith("text/") or ct_lower in (
+        "application/json",
+        "application/xml",
+        "application/xhtml+xml",
+    )
 
 
 def _error(code, msg):
