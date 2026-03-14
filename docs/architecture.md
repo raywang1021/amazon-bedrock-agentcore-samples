@@ -207,17 +207,26 @@ Lambda 回傳的 response 會帶以下自訂 header：
 
 ## Origin 保護
 
-採用雙層保護機制：
+SAM template 支援兩種 origin 模式（`OriginMode` 參數）：
 
-1. 網路層：ALB Security Group 只允許 CloudFront managed prefix list（`com.amazonaws.global.cloudfront.origin-facing`）的 IP 存取，非 CloudFront 流量在網路層就被擋掉
-2. 應用層（defense-in-depth）：CloudFront origin 設定自帶 `x-origin-verify` custom header，Lambda 驗證是否匹配，防止其他人的 CloudFront distribution 打你的 ALB
+### 模式 A：ALB（`OriginMode=alb`，預設）
 
-如果不需要 ALB，也可以直接用 Lambda Function URL + custom header 驗證（移除 ALB 相關資源即可）。
+雙層保護：
+1. 網路層：ALB Security Group 只允許 CloudFront managed prefix list（`com.amazonaws.global.cloudfront.origin-facing`）的 IP 存取
+2. 應用層（defense-in-depth）：CloudFront origin custom header `x-origin-verify`，Lambda 驗證匹配
 
-### 替代方案
+需要 VPC + ALB，有額外成本。
 
-- CloudFront OAC（Origin Access Control）：可在 CFF 的 `updateRequestOrigin()` 中帶 `originAccessControlConfig` 參數啟用 SigV4 簽署。Lambda Function URL 設 `AuthType: AWS_IAM`。目前未採用，留作 backlog。
-- 純 ALB + custom header：移除 ALB，Lambda 只透過 ALB 存取。`x-origin-verify` 提供應用層保護。
+### 模式 B：OAC（`OriginMode=oac`，推薦）
+
+CloudFront OAC（Origin Access Control）+ Lambda Function URL（`AuthType: AWS_IAM`）：
+1. CloudFront 使用 SigV4 簽署每個 origin request
+2. Lambda Function URL 只接受 IAM 認證的請求
+3. Lambda permission 限制只有指定的 CloudFront distribution 可以 invoke
+
+不需要 VPC、ALB、Security Group，零額外成本。安全性由 AWS IAM 保證。
+
+兩種模式都額外保留 `x-origin-verify` custom header 作為 defense-in-depth。
 
 ## CloudFront Function 偵測邏輯
 
@@ -228,5 +237,7 @@ Lambda 回傳的 response 會帶以下自訂 header：
 
 偵測到後，CFF 會：
 - 加上 `x-geo-bot: true`、`x-geo-bot-ua` header
-- 透過 `cf.selectRequestOriginById('geo-alb-origin')` 切換到預先設定的 ALB origin
+- 透過 `cf.selectRequestOriginById()` 切換到預先設定的 origin
+  - ALB 模式：`geo-alb-origin`
+  - OAC 模式：`geo-lambda-origin`
 - `x-origin-verify` header 由 CloudFront origin custom header 自動帶入，CFF 不處理
