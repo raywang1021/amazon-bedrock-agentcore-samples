@@ -91,14 +91,16 @@ CloudFront origin 設定：
 
 ### CloudFront Function
 
-CFF 使用 `cf.selectRequestOriginById()` 切換 origin。根據模式設定不同的 origin ID：
+兩個 CFF 分別對應兩種 origin 模式：
 
-- ALB 模式：`geo-alb-origin`
-- OAC 模式：`geo-lambda-origin`
+| CFF | 檔案 | Origin ID |
+|-----|------|-----------|
+| `geo-bot-router` | `infra/cloudfront-function/geo-router.js` | `geo-alb-origin` |
+| `geo-bot-router-oac` | `infra/cloudfront-function/geo-router-oac.js` | `geo-lambda-origin` |
 
-修改 `infra/cloudfront-function/geo-router.js` 中的 `GEO_ORIGIN_ID` 變數。
+部署時根據 origin 模式選擇對應的 CFF 關聯到 CloudFront distribution。
 
-更新 CFF：
+更新 CFF（以 ALB 模式為例）：
 ```bash
 # 取得 ETag
 aws cloudfront describe-function --name geo-bot-router --query 'ETag' --output text
@@ -116,6 +118,8 @@ aws cloudfront publish-function \
   --if-match <NEW_ETAG>
 ```
 
+OAC 模式同理，將 `geo-bot-router` 替換為 `geo-bot-router-oac`，檔案替換為 `geo-router-oac.js`。
+
 ### 模式切換
 
 從 ALB 切換到 OAC（或反向）：
@@ -124,6 +128,29 @@ sam deploy ... --parameter-overrides OriginMode=oac ...
 ```
 
 CloudFormation 會自動刪除舊模式的資源、建立新模式的資源。切換後需更新 CloudFront distribution 的 origin 設定。
+
+## llms.txt 存入
+
+用 Agent 產出 llms.txt 草稿，經 owner 審核後存入 DDB：
+
+```bash
+# 1. 產出草稿
+agentcore invoke '{"prompt": "幫 news.tvbs.com.tw 產生 llms.txt"}'
+
+# 2. 審核/編輯內容後，透過 Storage Lambda 存入 DDB
+aws lambda invoke --function-name geo-content-storage \
+  --region us-east-1 \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{
+    "url_path": "/llms.txt",
+    "geo_content": "<審核後的 llms.txt 內容>",
+    "original_url": "https://example.com",
+    "content_type": "text/markdown; charset=utf-8"
+  }' /dev/null
+
+# 3. 驗證
+curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"
+```
 
 ## 端到端測試
 
@@ -147,4 +174,12 @@ curl "https://<FUNCTION_URL>/world/3149599"  # 應回 403
 
 # 驗證 ALB 直接存取被擋（ALB 模式）
 curl "http://<ALB_DNS>/world/3149599"  # 應 timeout
+
+# llms.txt（bot 拿到 Markdown，一般使用者走原站）
+curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"  # 應回 text/markdown
+curl "https://<CF_DOMAIN>/llms.txt"               # 應回原站 404
+
+# OAC 模式測試（使用 OAC distribution domain）
+curl "https://<OAC_CF_DOMAIN>/world/3149600?ua=genaibot"  # 應回 GEO 內容
+curl "https://<OAC_CF_DOMAIN>/world/3149600"              # 應回原站內容
 ```
