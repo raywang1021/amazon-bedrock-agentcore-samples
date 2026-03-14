@@ -16,6 +16,7 @@ import boto3
 TABLE_NAME = os.environ.get("GEO_TABLE_NAME", "geo-content")
 AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN", "")
 AGENTCORE_REGION = os.environ.get("AGENTCORE_REGION", "us-east-1")
+GEO_TTL_SECONDS = int(os.environ.get("GEO_TTL_SECONDS", "86400"))  # 24h default
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(TABLE_NAME)
@@ -95,14 +96,15 @@ def handler(event, context):
         try:
             table.update_item(
                 Key={"url_path": url_path},
-                UpdateExpression="SET #s = :s, generation_duration_ms = :d, generator_duration_ms = :gd, #m = :mode, updated_at = :u",
-                ExpressionAttributeNames={"#s": "status", "#m": "mode"},
+                UpdateExpression="SET #s = :s, generation_duration_ms = :d, generator_duration_ms = :gd, #m = :mode, updated_at = :u, #ttl = :ttl",
+                ExpressionAttributeNames={"#s": "status", "#m": "mode", "#ttl": "ttl"},
                 ExpressionAttributeValues={
                     ":s": "ready",
                     ":d": Decimal(str(agent_duration_ms)),
                     ":gd": Decimal(str(generator_duration_ms)),
                     ":mode": "async",
                     ":u": now,
+                    ":ttl": int(time.time()) + GEO_TTL_SECONDS,
                 },
             )
         except Exception as e:
@@ -124,6 +126,7 @@ def handler(event, context):
             "generation_duration_ms": Decimal(str(agent_duration_ms)),
             "generator_duration_ms": Decimal(str(generator_duration_ms)),
             "mode": "async",
+            "ttl": int(time.time()) + GEO_TTL_SECONDS,
         })
         print(f"Stored raw agent response for {url_path} (agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)")
     except Exception as e:

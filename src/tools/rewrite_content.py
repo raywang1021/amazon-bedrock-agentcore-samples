@@ -8,13 +8,15 @@ REWRITE_SYSTEM_PROMPT = """You are a Generative Engine Optimization Expert. Dire
 
 3. **Data & Citations**: Strengthen claims with specific statistics, data points, and cited sources. Add inline references (e.g., "According to [Source], ...").
 
-4. **E-E-A-T Signals**: Include author credentials, organization context, and transparent sourcing to demonstrate Experience, Expertise, Authoritativeness, and Trustworthiness.
+4. **E-E-A-T Signals**: Highlight existing author credentials, organization context, and sourcing already present in the content. Do NOT fabricate or infer metadata that is not explicitly stated in the original content.
 
-5. **Structured Data Hints**: Suggest applicable schema types (Article, FAQ, HowTo, Organization) and include topic clustering keywords.
+5. **Factual Integrity**: NEVER add publication dates, author names, source attributions, or organizational information that do not exist in the original content. You may only reorganize, emphasize, or restructure information that is already present. If the original lacks a date or author, do NOT invent one.
 
-6. **Concise Key Takeaways**: Add a "Key Takeaways" section at the top summarizing the main points in 3-5 bullet points.
+6. **Structured Data Hints**: Suggest applicable schema types (Article, FAQ, HowTo, Organization) and include topic clustering keywords.
 
-7. **AI-Friendly Formatting**: Write in a factual, neutral tone. Avoid filler. Every sentence should carry information value.
+7. **Concise Key Takeaways**: Add a "Key Takeaways" section at the top summarizing the main points in 3-5 bullet points.
+
+8. **AI-Friendly Formatting**: Write in a factual, neutral tone. Avoid filler. Every sentence should carry information value.
 
 Output the fully rewritten content. Do not explain what you changed — just output the optimized version."""
 

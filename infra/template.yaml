@@ -265,6 +265,7 @@ Resources:
           AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
           AGENTCORE_REGION: !Ref "AWS::Region"
           ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
+          GEO_TTL_SECONDS: "86400"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TableName
@@ -301,6 +302,7 @@ Resources:
           GEO_TABLE_NAME: !Ref TableName
           AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
           AGENTCORE_REGION: !Ref "AWS::Region"
+          GEO_TTL_SECONDS: "86400"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TableName

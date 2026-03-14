@@ -5,10 +5,18 @@ Modes (via querystring ?mode=):
   - "async": Return 202 immediately, trigger async generation.
   - "sync": Wait for AgentCore to generate, return GEO content directly.
 
+Purge (via querystring ?purge=true):
+  - Deletes the DDB record for the requested path.
+  - Next bot visit will trigger fresh generation.
+
 DDB status field:
   - "ready": GEO content available, serve it.
   - "processing": Generation in progress, don't re-trigger.
   - (no record): First visit, trigger generation.
+
+TTL:
+  - All DDB records include a `ttl` field (Unix timestamp).
+  - Default: 86400 seconds (24 hours). Configurable via GEO_TTL_SECONDS env var.
 """
 
 import json
@@ -28,6 +36,7 @@ DEFAULT_ORIGIN_HOST = os.environ.get("DEFAULT_ORIGIN_HOST", "")
 AGENT_RUNTIME_ARN = os.environ.get("AGENT_RUNTIME_ARN", "")
 AGENTCORE_REGION = os.environ.get("AGENTCORE_REGION", "us-east-1")
 ORIGIN_VERIFY_SECRET = os.environ.get("ORIGIN_VERIFY_SECRET", "geo-agent-cf-origin-2026")
+GEO_TTL_SECONDS = int(os.environ.get("GEO_TTL_SECONDS", "86400"))  # 24h default
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(TABLE_NAME)
@@ -40,9 +49,23 @@ def _get_mode(event):
     return mode if mode in ("async", "passthrough", "sync") else "passthrough"
 
 
+def _is_purge(event):
+    params = event.get("queryStringParameters") or {}
+    return params.get("purge", "").lower() in ("true", "1", "yes")
+
+
+def _ttl_value():
+    return int(time.time()) + GEO_TTL_SECONDS
+
+
 def _get_original_url(event, path):
-    headers = event.get("headers") or {}
-    host = headers.get("x-forwarded-host") or headers.get("host") or DEFAULT_ORIGIN_HOST
+    # Use DEFAULT_ORIGIN_HOST (CloudFront domain) to fetch original content.
+    # Don't use ALB host header — it would route back to Lambda.
+    # Don't include querystring — ?ua=genaibot would re-trigger CFF.
+    host = DEFAULT_ORIGIN_HOST
+    if not host:
+        headers = event.get("headers") or {}
+        host = headers.get("x-forwarded-host") or headers.get("host") or ""
     return f"https://{host}{path}" if host else path
 
 
@@ -69,6 +92,7 @@ def _mark_processing(path, original_url):
                 "status": "processing",
                 "original_url": original_url,
                 "created_at": datetime.now(timezone.utc).isoformat(),
+                "ttl": _ttl_value(),
             },
             ConditionExpression="attribute_not_exists(url_path)",
         )
@@ -131,6 +155,19 @@ def handler(event, context):
     path = event.get("path") or "/"
     mode = _get_mode(event)
     original_url = _get_original_url(event, path)
+
+    # --- Purge ---
+    if _is_purge(event):
+        try:
+            table.delete_item(Key={"url_path": path})
+            print(f"Purged {path}")
+            return {
+                "statusCode": 200,
+                "headers": {"Content-Type": "application/json", "Cache-Control": "no-cache"},
+                "body": json.dumps({"status": "purged", "url_path": path}),
+            }
+        except Exception as e:
+            return _error(500, f"Purge failed: {e}")
 
     # --- Cache lookup ---
     try:
