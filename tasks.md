@@ -33,7 +33,7 @@ OAC 獨立測試通過（stack: `geo-oac-test`, CF: `dq324v08a4yas.cloudfront.ne
 - [x] CloudWatch Alarm — generator 失敗率、handler P99 延遲
 
 ### Retro — 低優先
-- [ ] 自動化測試（CI）— 目前只有手動 e2e test
+- [x] 自動化測試（CI）— 59 unit tests + GitHub Actions workflow
 
 ### 功能
 - [ ] 清理 OAC 測試 stack
