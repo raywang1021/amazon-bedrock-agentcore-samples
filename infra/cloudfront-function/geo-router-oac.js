@@ -59,6 +59,8 @@ function handler(event) {
   if (isAiBot) {
     request.headers['x-geo-bot'] = { value: 'true' };
     request.headers['x-geo-bot-ua'] = { value: userAgent };
+    // Preserve original host before origin switch (CF overwrites Host header)
+    request.headers['x-original-host'] = { value: request.headers['host'] ? request.headers['host'].value : '' };
 
     // Switch origin to Lambda Function URL (OAC SigV4)
     cf.selectRequestOriginById(GEO_ORIGIN_ID);

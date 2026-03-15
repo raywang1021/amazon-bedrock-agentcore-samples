@@ -42,10 +42,14 @@ def handler(event, context):
             "body": json.dumps({"error": "url_path and geo_content are required"}),
         }
 
+    host = event.get("host", "")
+    # Build composite DDB key for multi-tenancy: {host}#{path}
+    ddb_key = f"{host}#{url_path}" if host else url_path
+
     now = datetime.now(timezone.utc).isoformat()
 
     item = {
-        "url_path": url_path,
+        "url_path": ddb_key,
         "status": "ready",
         "geo_content": geo_content,
         "content_type": event.get("content_type", "text/html; charset=utf-8"),
@@ -55,7 +59,6 @@ def handler(event, context):
         "ttl": int(time.time()) + GEO_TTL_SECONDS,
     }
 
-    host = event.get("host")
     if host:
         item["host"] = host
 
@@ -71,6 +74,7 @@ def handler(event, context):
             "body": json.dumps({
                 "status": "stored",
                 "url_path": url_path,
+                "ddb_key": ddb_key,
                 "content_length": len(geo_content),
             }),
         }

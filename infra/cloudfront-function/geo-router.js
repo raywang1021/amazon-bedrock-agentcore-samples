@@ -62,6 +62,8 @@ function handler(event) {
     // Add header so origin can identify this was an AI bot request
     request.headers['x-geo-bot'] = { value: 'true' };
     request.headers['x-geo-bot-ua'] = { value: userAgent };
+    // Preserve original host before origin switch (CF overwrites Host header)
+    request.headers['x-original-host'] = { value: request.headers['host'] ? request.headers['host'].value : '' };
 
     // Switch origin to ALB (pre-configured in distribution as HTTP origin)
     cf.selectRequestOriginById(GEO_ORIGIN_ID);

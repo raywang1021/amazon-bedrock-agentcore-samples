@@ -45,6 +45,11 @@ table = dynamodb.Table(TABLE_NAME)
 lambda_client = boto3.client("lambda")
 
 
+def _ddb_key(host, path):
+    """Build composite DDB key: '{host}#{path}' for multi-tenancy, or just path if no host."""
+    return f"{host}#{path}" if host else path
+
+
 def _get_mode(event):
     params = event.get("queryStringParameters") or {}
     mode = params.get("mode", "passthrough")
@@ -71,11 +76,11 @@ def _get_original_url(event, path):
     return f"https://{host}{path}" if host else path
 
 
-def _trigger_async(path, original_url, host="", mode="passthrough"):
+def _trigger_async(ddb_key, original_url, host="", mode="passthrough"):
     if not GENERATOR_FUNCTION_NAME:
         return
     try:
-        payload = {"url_path": path, "original_url": original_url, "mode": mode}
+        payload = {"url_path": ddb_key, "original_url": original_url, "mode": mode}
         if host:
             payload["host"] = host
         lambda_client.invoke(
@@ -83,16 +88,16 @@ def _trigger_async(path, original_url, host="", mode="passthrough"):
             InvocationType="Event",
             Payload=json.dumps(payload),
         )
-        print(f"Async generation triggered for {path}")
+        print(f"Async generation triggered for {ddb_key}")
     except Exception as e:
         print(f"Failed to trigger generator: {e}")
 
 
-def _mark_processing(path, original_url, host="", mode="passthrough"):
+def _mark_processing(ddb_key, original_url, host="", mode="passthrough"):
     """Write a processing placeholder to DDB to prevent duplicate triggers."""
     try:
         item = {
-            "url_path": path,
+            "url_path": ddb_key,
             "status": "processing",
             "original_url": original_url,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -165,15 +170,18 @@ def handler(event, context):
     path = event.get("rawPath") or event.get("path") or "/"
     mode = _get_mode(event)
     original_url = _get_original_url(event, path)
-    host = headers.get("x-forwarded-host") or headers.get("host") or ""
+    # x-original-host: the host the bot actually accessed (set by CFF before origin switch)
+    # Falls back to x-forwarded-host or host header
+    original_host = headers.get("x-original-host") or headers.get("x-forwarded-host") or headers.get("host") or ""
+    ddb_key = _ddb_key(original_host, path)
 
     # --- Purge ---
     if _is_purge(event):
         try:
-            table.delete_item(Key={"url_path": path})
-            print(f"Purged {path}")
+            table.delete_item(Key={"url_path": ddb_key})
+            print(f"Purged {ddb_key}")
             cf_invalidated = _invalidate_cf_cache(path)
-            result = {"status": "purged", "url_path": path}
+            result = {"status": "purged", "url_path": path, "ddb_key": ddb_key}
             if cf_invalidated:
                 result["cf_invalidation"] = cf_invalidated
             return {
@@ -186,7 +194,7 @@ def handler(event, context):
 
     # --- Cache lookup ---
     try:
-        resp = table.get_item(Key={"url_path": path})
+        resp = table.get_item(Key={"url_path": ddb_key})
     except ClientError as e:
         return _error(500, f"DynamoDB error: {e.response['Error']['Message']}")
 
@@ -215,19 +223,19 @@ def handler(event, context):
     if item and item.get("status") == "processing":
         # Check if processing is stale (exceeded timeout)
         if _is_processing_stale(item):
-            print(f"Stale processing record for {path}, resetting")
+            print(f"Stale processing record for {ddb_key}, resetting")
             try:
-                table.delete_item(Key={"url_path": path})
+                table.delete_item(Key={"url_path": ddb_key})
             except Exception:
                 pass
-            return _passthrough_or_202(mode, original_url, path, already_triggered=False, handler_start=handler_start, host=host)
-        return _passthrough_or_202(mode, original_url, path, already_triggered=True, handler_start=handler_start, host=host)
+            return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=False, handler_start=handler_start, host=original_host)
+        return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=True, handler_start=handler_start, host=original_host)
 
     # --- Cache miss ---
-    return _passthrough_or_202(mode, original_url, path, already_triggered=False, handler_start=handler_start, host=host)
+    return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=False, handler_start=handler_start, host=original_host)
 
 
-def _passthrough_or_202(mode, original_url, path, already_triggered, handler_start, host=""):
+def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, handler_start, host=""):
     """Handle cache miss or processing state based on mode."""
 
     if mode == "sync":
@@ -247,14 +255,14 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
             }
         # Mark processing + invoke synchronously
         if not already_triggered:
-            _mark_processing(path, original_url, host, mode="sync")
+            _mark_processing(ddb_key, original_url, host, mode="sync")
         start = time.time()
         _invoke_agentcore_sync(original_url)
         agent_duration_ms = int((time.time() - start) * 1000)
 
         # Re-read DDB — agent should have stored content
         try:
-            resp = table.get_item(Key={"url_path": path})
+            resp = table.get_item(Key={"url_path": ddb_key})
             item = resp.get("Item")
         except Exception:
             item = None
@@ -264,7 +272,7 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
         if item and item.get("status") == "ready":
             try:
                 table.update_item(
-                    Key={"url_path": path},
+                    Key={"url_path": ddb_key},
                     UpdateExpression="SET generation_duration_ms = :d, handler_duration_ms = :h, #m = :mode",
                     ExpressionAttributeNames={"#m": "mode"},
                     ExpressionAttributeValues={
@@ -292,8 +300,8 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
 
     if mode == "async":
         if not already_triggered:
-            _mark_processing(path, original_url, host, mode="async")
-            _trigger_async(path, original_url, host, mode="async")
+            _mark_processing(ddb_key, original_url, host, mode="async")
+            _trigger_async(ddb_key, original_url, host, mode="async")
         handler_ms = int((time.time() - handler_start) * 1000)
         return {
             "statusCode": 202,
@@ -324,8 +332,8 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
             "body": body,
         }
     if not already_triggered:
-        _mark_processing(path, original_url, host, mode="passthrough")
-        _trigger_async(path, original_url, host, mode="passthrough")
+        _mark_processing(ddb_key, original_url, host, mode="passthrough")
+        _trigger_async(ddb_key, original_url, host, mode="passthrough")
     return _do_passthrough_with_body(body, ct, path, handler_start)
 
 
@@ -382,10 +390,12 @@ def _invalidate_cf_cache(path):
     try:
         cf_client = boto3.client("cloudfront")
         caller_ref = f"purge-{path}-{int(time.time())}"
+        # Use wildcard to clear all querystring variants of this path
+        invalidation_path = f"{path}*" if not path.endswith("*") else path
         resp = cf_client.create_invalidation(
             DistributionId=CF_DISTRIBUTION_ID,
             InvalidationBatch={
-                "Paths": {"Quantity": 1, "Items": [path]},
+                "Paths": {"Quantity": 1, "Items": [invalidation_path]},
                 "CallerReference": caller_ref,
             },
         )

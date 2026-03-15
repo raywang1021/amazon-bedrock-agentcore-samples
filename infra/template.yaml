@@ -26,6 +26,10 @@ Parameters:
     Type: String
     Default: ""
     Description: Default origin host for reconstructing original URLs
+  DefaultOriginDomain:
+    Type: String
+    Default: ""
+    Description: Origin site domain for DDB multi-tenancy key (e.g. news.example.com)
   OriginVerifySecret:
     Type: String
     Default: "geo-agent-cf-origin-2026"

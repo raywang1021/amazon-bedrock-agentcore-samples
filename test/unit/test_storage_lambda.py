@@ -74,6 +74,21 @@ class TestStorageLambda:
         call_args = self.mock_table.put_item.call_args
         item = call_args[1]["Item"] if "Item" in call_args[1] else call_args[0][0]
         assert item["host"] == "example.com"
+        # Composite key: host#path
+        assert item["url_path"] == "example.com#/test"
+
+    def test_composite_key_without_host(self):
+        self.mock_table.put_item.return_value = {}
+        event = {
+            "url_path": "/test",
+            "geo_content": "<html>content</html>",
+        }
+        result = self.handler(event, None)
+        assert result["statusCode"] == 200
+        call_args = self.mock_table.put_item.call_args
+        item = call_args[1]["Item"] if "Item" in call_args[1] else call_args[0][0]
+        # No host → key is just the path (backward compatible)
+        assert item["url_path"] == "/test"
 
     def test_generation_duration_stored(self):
         self.mock_table.put_item.return_value = {}
