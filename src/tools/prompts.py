@@ -24,4 +24,9 @@ IMPORTANT RULES:
 - Do NOT fabricate or infer metadata not present in the original content.
   This includes publication dates, author names, source attributions, or
   organizational information. You may only reorganize and emphasize
-  information that already exists in the original text."""
+  information that already exists in the original text.
+- MUST PRESERVE all metadata that exists in the original content, including:
+  publication dates, update dates, author names, photographer credits,
+  reporter names, and source attributions. Place them prominently
+  (e.g., in a byline section near the top or in structured data markup).
+  These are critical E-E-A-T signals for AI search engines."""
