@@ -71,11 +71,11 @@ def _get_original_url(event, path):
     return f"https://{host}{path}" if host else path
 
 
-def _trigger_async(path, original_url, host=""):
+def _trigger_async(path, original_url, host="", mode="passthrough"):
     if not GENERATOR_FUNCTION_NAME:
         return
     try:
-        payload = {"url_path": path, "original_url": original_url}
+        payload = {"url_path": path, "original_url": original_url, "mode": mode}
         if host:
             payload["host"] = host
         lambda_client.invoke(
@@ -88,7 +88,7 @@ def _trigger_async(path, original_url, host=""):
         print(f"Failed to trigger generator: {e}")
 
 
-def _mark_processing(path, original_url, host=""):
+def _mark_processing(path, original_url, host="", mode="passthrough"):
     """Write a processing placeholder to DDB to prevent duplicate triggers."""
     try:
         item = {
@@ -97,6 +97,7 @@ def _mark_processing(path, original_url, host=""):
             "original_url": original_url,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "ttl": _ttl_value(),
+            "mode": mode,
         }
         if host:
             item["host"] = host
@@ -246,7 +247,7 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
             }
         # Mark processing + invoke synchronously
         if not already_triggered:
-            _mark_processing(path, original_url, host)
+            _mark_processing(path, original_url, host, mode="sync")
         start = time.time()
         _invoke_agentcore_sync(original_url)
         agent_duration_ms = int((time.time() - start) * 1000)
@@ -291,8 +292,8 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
 
     if mode == "async":
         if not already_triggered:
-            _mark_processing(path, original_url, host)
-            _trigger_async(path, original_url, host)
+            _mark_processing(path, original_url, host, mode="async")
+            _trigger_async(path, original_url, host, mode="async")
         handler_ms = int((time.time() - handler_start) * 1000)
         return {
             "statusCode": 202,
@@ -323,8 +324,8 @@ def _passthrough_or_202(mode, original_url, path, already_triggered, handler_sta
             "body": body,
         }
     if not already_triggered:
-        _mark_processing(path, original_url, host)
-        _trigger_async(path, original_url, host)
+        _mark_processing(path, original_url, host, mode="passthrough")
+        _trigger_async(path, original_url, host, mode="passthrough")
     return _do_passthrough_with_body(body, ct, path, handler_start)
 
 

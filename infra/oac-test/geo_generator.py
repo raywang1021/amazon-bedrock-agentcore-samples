@@ -69,6 +69,7 @@ def handler(event, context):
     url_path = event.get("url_path", "/")
     original_url = event.get("original_url", url_path)
     host = event.get("host", "")
+    trigger_mode = event.get("mode", "async")
 
     print(f"Generating GEO content for {original_url} (path: {url_path})")
 
@@ -103,7 +104,7 @@ def handler(event, context):
                     ":s": "ready",
                     ":d": Decimal(str(agent_duration_ms)),
                     ":gd": Decimal(str(generator_duration_ms)),
-                    ":mode": "async",
+                    ":mode": trigger_mode,
                     ":u": now,
                     ":ttl": int(time.time()) + GEO_TTL_SECONDS,
                 },
@@ -126,7 +127,7 @@ def handler(event, context):
             "updated_at": now,
             "generation_duration_ms": Decimal(str(agent_duration_ms)),
             "generator_duration_ms": Decimal(str(generator_duration_ms)),
-            "mode": "async",
+            "mode": trigger_mode,
             "ttl": int(time.time()) + GEO_TTL_SECONDS,
         }
         if host:

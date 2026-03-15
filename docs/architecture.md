@@ -296,7 +296,7 @@ Table: `geo-content`，partition key: `url_path` (S)
 | `geo_content` | S | GEO 優化後的內容（HTML 或 Markdown） |
 | `content_type` | S | `text/html; charset=utf-8` 或 `text/markdown; charset=utf-8` |
 | `original_url` | S | 原始完整 URL |
-| `mode` | S | 觸發模式：`sync` / `async` |
+| `mode` | S | 觸發模式：`passthrough` / `async` / `sync` |
 | `created_at` | S | 記錄建立時間（ISO 8601 UTC） |
 | `updated_at` | S | 最後更新時間 |
 | `generation_duration_ms` | N | AgentCore 產生 GEO 內容的純時間（ms） |
