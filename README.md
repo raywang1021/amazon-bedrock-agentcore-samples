@@ -62,6 +62,7 @@ agentcore deploy
 
 ## 文件
 
+- [為什麼用 AgentCore](docs/why-agentcore.md) — AgentCore vs 直接呼叫 LLM、Tool Selection vs MCP、三層觸發架構
 - [部署指南](docs/deployment.md) — AgentCore、SAM、CloudFront 部署步驟
 - [架構說明](docs/architecture.md) — Edge Serving 架構、DDB Schema、Response Headers
 - [FAQ](docs/faq.md) — 為什麼用 Agent、Tool 呼叫流程、@tool vs MCP
