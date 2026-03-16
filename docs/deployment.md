@@ -58,6 +58,8 @@ sam deploy --template infra/template.yaml \
     DefaultOriginHost=<CF_DOMAIN>
 ```
 
+`DefaultOriginHost` 填原始站台的 domain（例如 `www.setn.com`），不是 CloudFront domain。
+
 建立的資源：
 - VPC + 2 public subnets（如果沒提供 VpcId）
 - ALB + Security Group（只允許 CloudFront managed prefix list）
@@ -93,9 +95,11 @@ sam deploy --template infra/template.yaml \
   --parameter-overrides \
     OriginMode=oac \
     AgentRuntimeArn=<AGENT_ARN> \
-    DefaultOriginHost=<CF_DOMAIN> \
+    DefaultOriginHost=www.setn.com \
     CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID>
 ```
+
+`DefaultOriginHost` 填原始站台的 domain（例如 `www.setn.com`、`today.line.me`），不是 CloudFront domain。Lambda 用它來 fetch 原始內容。
 
 建立的資源：
 - Lambda Function URL（`AuthType: AWS_IAM`）
@@ -103,7 +107,7 @@ sam deploy --template infra/template.yaml \
 - CloudFront → Lambda invoke permission
 - `geo-content-handler` Lambda
 - `geo-content-generator` Lambda
-- DynamoDB table `geo-content`
+- DynamoDB table `geo-content`（可透過 `CreateTable=false` 跳過）
 
 不建立 VPC、ALB、Security Group。
 
@@ -152,6 +156,33 @@ sam deploy ... --parameter-overrides OriginMode=oac ...
 ```
 
 CloudFormation 會自動刪除舊模式的資源、建立新模式的資源。切換後需更新 CloudFront distribution 的 origin 設定。
+
+### 多站台部署（共用 DynamoDB）
+
+DDB key 格式為 `{host}#{path}`，天生支援多租戶。多個站台可共用同一張 DDB table，各自部署獨立的 CloudFront distribution + Lambda stack。
+
+第一組 stack（建立 DDB table）：
+```bash
+sam deploy --stack-name geo-backend-setn \
+  --parameter-overrides \
+    TableName=geo-content \
+    OriginMode=oac \
+    DefaultOriginHost=www.setn.com \
+    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID_A>
+```
+
+第二組 stack（共用既有 DDB table，`CreateTable=false`）：
+```bash
+sam deploy --stack-name geo-backend-linetoday \
+  --parameter-overrides \
+    TableName=geo-content \
+    CreateTable=false \
+    OriginMode=oac \
+    DefaultOriginHost=today.line.me \
+    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID_B>
+```
+
+注意：共用 table 時，各 stack 的 Lambda IAM policy 是 table-level，理論上可讀寫其他 host 的資料。Demo 環境可接受，正式環境可考慮用 IAM condition `dynamodb:LeadingKeys` 限制存取範圍。
 
 ## llms.txt 存入
 

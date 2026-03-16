@@ -52,12 +52,20 @@ Parameters:
     Type: String
     Default: ""
     Description: (ALB mode) CloudFront origin-facing managed prefix list ID.
+  CreateTable:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Whether to create the DynamoDB table. Set to false when sharing
+      an existing table across multiple stacks (multi-tenant).
 
 Conditions:
   HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
   UseAlb: !Equals [!Ref OriginMode, "alb"]
   UseOac: !Equals [!Ref OriginMode, "oac"]
   HasCfDistArn: !Not [!Equals [!Ref CloudFrontDistributionArn, ""]]
+  ShouldCreateTable: !Equals [!Ref CreateTable, "true"]
   CreateVpc: !And
     - !Condition UseAlb
     - !Equals [!Ref VpcId, ""]
@@ -304,6 +312,7 @@ Resources:
   # ============================================================
   GeoContentTable:
     Type: AWS::DynamoDB::Table
+    Condition: ShouldCreateTable
     Properties:
       TableName: !Ref TableName
       BillingMode: PAY_PER_REQUEST
@@ -418,6 +427,7 @@ Outputs:
     Description: Active origin mode
     Value: !Ref OriginMode
   TableName:
+    Condition: ShouldCreateTable
     Description: DynamoDB table name
     Value: !Ref GeoContentTable
   GeneratorFunctionName:

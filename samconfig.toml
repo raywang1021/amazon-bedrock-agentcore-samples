@@ -7,7 +7,7 @@ s3_prefix = "geo-backend"
 region = "us-east-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "TableName=\"geo-content\" Stage=\"prod\""
+parameter_overrides = "TableName=\"geo-content\" OriginMode=\"oac\" DefaultOriginHost=\"www.setn.com\" CloudFrontDistributionArn=\"arn:aws:cloudfront::023268648855:distribution/E2ZP7RSVOE6A8D\""
 image_repositories = []
 
 [default.global.parameters]

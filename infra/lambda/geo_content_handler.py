@@ -25,6 +25,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from urllib.parse import urlencode
 from urllib.request import urlopen, Request
 
 import boto3
@@ -68,12 +69,21 @@ def _ttl_value():
 def _get_original_url(event, path):
     # Use DEFAULT_ORIGIN_HOST (CloudFront domain) to fetch original content.
     # Don't use ALB host header — it would route back to Lambda.
-    # Don't include querystring — ?ua=genaibot would re-trigger CFF.
+    # Preserve querystring but strip 'ua' and 'mode' and 'purge' params
+    # to avoid re-triggering CFF bot detection or handler modes.
     host = DEFAULT_ORIGIN_HOST
     if not host:
         headers = event.get("headers") or {}
         host = headers.get("x-forwarded-host") or headers.get("host") or ""
-    return f"https://{host}{path}" if host else path
+    base = f"https://{host}{path}" if host else path
+
+    # Rebuild querystring without control params
+    params = event.get("queryStringParameters") or {}
+    filtered = {k: v for k, v in params.items() if k not in ("ua", "mode", "purge")}
+    if filtered:
+        qs = urlencode(filtered)
+        return f"{base}?{qs}"
+    return base
 
 
 def _trigger_async(ddb_key, original_url, host="", mode="passthrough"):
