@@ -80,11 +80,24 @@ def _strip_geo_trigger(url: str) -> str:
 
 
 def _fetch_and_prepare(url: str, user_agent: str = DEFAULT_UA) -> str | None:
-    """Fetch URL with given UA, sanitize, truncate. Returns None on failure."""
+    """Fetch URL with given UA, sanitize, truncate. Returns None on failure.
+
+    For GEO-optimized responses (X-GEO-Optimized header), uses raw HTML
+    instead of trafilatura extraction to preserve structural GEO signals.
+    """
+    import requests as _requests
     try:
-        text = fetch_page_text(url, user_agent=user_agent)
-    except Exception as e:
+        resp = _requests.get(url, headers={"User-Agent": user_agent}, timeout=30)
+        resp.raise_for_status()
+    except Exception:
         return None
+
+    # GEO content is already clean structured HTML — use it directly
+    if resp.headers.get("X-GEO-Optimized") == "true":
+        text = resp.text
+    else:
+        text = fetch_page_text(url, user_agent=user_agent)
+
     text = sanitize_web_content(text)
     if len(text) > MAX_CHARS:
         text = text[:MAX_CHARS] + "\n\n[Content truncated for analysis]"
