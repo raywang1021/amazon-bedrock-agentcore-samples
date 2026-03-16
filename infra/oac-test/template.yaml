@@ -144,7 +144,10 @@ Resources:
           EnableAcceptEncodingGzip: true
           EnableAcceptEncodingBrotli: true
           HeadersConfig:
-            HeaderBehavior: none
+            HeaderBehavior: whitelist
+            Headers:
+              - x-geo-bot
+              - x-original-host
           CookiesConfig:
             CookieBehavior: none
           QueryStringsConfig:
@@ -202,7 +205,6 @@ Resources:
           TargetOriginId: default-origin
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: !Ref GeoCachePolicy
-          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
           AllowedMethods: [GET, HEAD]
           CachedMethods: [GET, HEAD]
           FunctionAssociations:
