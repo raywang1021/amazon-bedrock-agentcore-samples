@@ -69,6 +69,8 @@ Do NOT wrap your output in ```html or ``` markers."""
     # Invoke Storage Lambda instead of writing DDB directly
     parsed = urlparse(url)
     url_path = parsed.path or "/"
+    if parsed.query:
+        url_path = f"{url_path}?{parsed.query}"
 
     lambda_client = boto3.client("lambda", region_name=AWS_REGION)
     payload = {

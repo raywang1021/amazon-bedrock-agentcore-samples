@@ -347,7 +347,10 @@ Resources:
           AGENTCORE_REGION: !Ref "AWS::Region"
           ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
           GEO_TTL_SECONDS: "86400"
-          CF_DISTRIBUTION_ID: ""
+          CF_DISTRIBUTION_ID: !If
+            - HasCfDistArn
+            - !Select [1, !Split ["/", !Ref CloudFrontDistributionArn]]
+            - ""
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TableName
@@ -366,6 +369,13 @@ Resources:
                   - HasAgentArn
                   - !Sub "${AgentRuntimeArn}/runtime-endpoint/*"
                   - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*/runtime-endpoint/*"
+            - !If
+              - HasCfDistArn
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Ref CloudFrontDistributionArn
+              - !Ref "AWS::NoValue"
 
   # ============================================================
   # Lambda: async worker (always created)

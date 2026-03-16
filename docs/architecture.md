@@ -319,7 +319,7 @@ llms.txt 內容由網站 owner 控制，類似 robots.txt 的管理方式。
 
 Table: `geo-content`，partition key: `url_path` (S)
 
-Key 格式為 `{host}#{path}`（例如 `dlmwhof468s34.cloudfront.net#/world/123456`），支援多租戶。host 取自 CFF 設定的 `x-original-host` header。
+Key 格式為 `{host}#{path}[?query]`（例如 `dlmwhof468s34.cloudfront.net#/News.aspx?NewsID=1807523`），支援多租戶。host 取自 CFF 設定的 `x-original-host` header。業務 query params 會納入 key（按 key 排序），控制參數（`ua`、`mode`、`purge`）會被過濾。
 
 ### Query String 處理
 

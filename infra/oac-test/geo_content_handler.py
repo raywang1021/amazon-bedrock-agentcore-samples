@@ -46,9 +46,20 @@ table = dynamodb.Table(TABLE_NAME)
 lambda_client = boto3.client("lambda")
 
 
-def _ddb_key(host, path):
-    """Build composite DDB key: '{host}#{path}' for multi-tenancy, or just path if no host."""
-    return f"{host}#{path}" if host else path
+CONTROL_PARAMS = {"ua", "mode", "purge"}
+
+
+def _filtered_qs(event):
+    """Return sorted querystring without control params, for use in DDB key and origin URL."""
+    params = event.get("queryStringParameters") or {}
+    filtered = {k: v for k, v in params.items() if k not in CONTROL_PARAMS}
+    return urlencode(sorted(filtered.items())) if filtered else ""
+
+
+def _ddb_key(host, path, qs=""):
+    """Build composite DDB key: '{host}#{path}[?qs]' for multi-tenancy."""
+    full_path = f"{path}?{qs}" if qs else path
+    return f"{host}#{full_path}" if host else full_path
 
 
 def _get_mode(event):
@@ -67,23 +78,17 @@ def _ttl_value():
 
 
 def _get_original_url(event, path):
-    # Use DEFAULT_ORIGIN_HOST (CloudFront domain) to fetch original content.
+    # Use DEFAULT_ORIGIN_HOST (origin site domain) to fetch original content.
     # Don't use ALB host header — it would route back to Lambda.
-    # Preserve querystring but strip 'ua' and 'mode' and 'purge' params
-    # to avoid re-triggering CFF bot detection or handler modes.
+    # Preserve querystring but strip control params.
     host = DEFAULT_ORIGIN_HOST
     if not host:
         headers = event.get("headers") or {}
         host = headers.get("x-forwarded-host") or headers.get("host") or ""
     base = f"https://{host}{path}" if host else path
 
-    # Rebuild querystring without control params
-    params = event.get("queryStringParameters") or {}
-    filtered = {k: v for k, v in params.items() if k not in ("ua", "mode", "purge")}
-    if filtered:
-        qs = urlencode(filtered)
-        return f"{base}?{qs}"
-    return base
+    qs = _filtered_qs(event)
+    return f"{base}?{qs}" if qs else base
 
 
 def _trigger_async(ddb_key, original_url, host="", mode="passthrough"):
@@ -179,11 +184,12 @@ def handler(event, context):
     # ALB: event["path"], Function URL: event["rawPath"]
     path = event.get("rawPath") or event.get("path") or "/"
     mode = _get_mode(event)
+    qs = _filtered_qs(event)
     original_url = _get_original_url(event, path)
     # x-original-host: the host the bot actually accessed (set by CFF before origin switch)
     # Falls back to x-forwarded-host or host header
     original_host = headers.get("x-original-host") or headers.get("x-forwarded-host") or headers.get("host") or ""
-    ddb_key = _ddb_key(original_host, path)
+    ddb_key = _ddb_key(original_host, path, qs)
 
     # --- Purge ---
     if _is_purge(event):

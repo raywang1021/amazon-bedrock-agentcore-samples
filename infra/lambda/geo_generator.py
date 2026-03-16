@@ -102,7 +102,10 @@ def handler(event, context):
         parsed = urlparse(original_url)
         origin_host = parsed.netloc
         if origin_host:
-            agent_ddb_key = f"{origin_host}#{parsed.path or '/'}"
+            agent_path = parsed.path or "/"
+            if parsed.query:
+                agent_path = f"{agent_path}?{parsed.query}"
+            agent_ddb_key = f"{origin_host}#{agent_path}"
             if agent_ddb_key != url_path:
                 try:
                     response = table.get_item(
