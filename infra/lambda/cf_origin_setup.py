@@ -21,9 +21,26 @@ Properties (from CloudFormation):
 
 import json
 import boto3
-import cfnresponse
+from urllib.request import urlopen, Request as UrlRequest
 
 cf = boto3.client("cloudfront")
+
+
+def _send_cfn_response(event, context, status, data=None):
+    """Send response to CloudFormation (replaces cfnresponse for CodeUri-based Lambda)."""
+    body = json.dumps({
+        "Status": status,
+        "Reason": f"See CloudWatch Log Stream: {context.log_stream_name}",
+        "PhysicalResourceId": context.log_stream_name,
+        "StackId": event["StackId"],
+        "RequestId": event["RequestId"],
+        "LogicalResourceId": event["LogicalResourceId"],
+        "Data": data or {},
+    })
+    req = UrlRequest(event["ResponseURL"], data=body.encode("utf-8"), method="PUT")
+    req.add_header("Content-Type", "")
+    req.add_header("Content-Length", str(len(body)))
+    urlopen(req)
 
 
 def handler(event, context):
@@ -34,7 +51,7 @@ def handler(event, context):
 
         if request_type == "Delete":
             _remove_origin(dist_id)
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            _send_cfn_response(event, context, "SUCCESS", {})
             return
 
         # Create or Update
@@ -45,13 +62,13 @@ def handler(event, context):
         behavior_path = props.get("BehaviorPath", "*")
 
         _add_origin(dist_id, func_url_domain, oac_id, verify_secret, cff_arn, behavior_path)
-        cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+        _send_cfn_response(event, context, "SUCCESS", {
             "DistributionId": dist_id,
             "OriginId": "geo-lambda-origin",
         })
     except Exception as e:
         print(f"Error: {e}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+        _send_cfn_response(event, context, "FAILED", {"Error": str(e)})
 
 
 ORIGIN_ID = "geo-lambda-origin"
