@@ -36,6 +36,11 @@ OAC 獨立測試通過（stack: `geo-oac-test`, CF: `dq324v08a4yas.cloudfront.ne
 - [x] 自動化測試（CI）— 59 unit tests + GitHub Actions workflow
 
 ### 功能
+- [x] CFF `x-original-host` header + cache policy whitelist — 讓 ALB origin 拿到原始 host
+- [x] Generator 修正：ConsistentRead、put_item 完整記錄、fallback HTML 提取（不再存 raw agent 對話文字）
+- [x] `fetch_page_text` 加入 `with_metadata=True`（trafilatura 保留 metadata）
+- [x] `evaluate_geo_score` 三視角評分（as-is / original / geo）+ `temperature=0.1` 低隨機性
+- [x] `evaluate_geo_score` GEO 回應 bypass trafilatura（偵測 `X-GEO-Optimized` header，保留結構化 HTML）
 - [ ] 清理 OAC 測試 stack
 - [ ] Sync mode 效能優化（目前 ~24s）
 - [ ] 多語言 GEO 內容支援

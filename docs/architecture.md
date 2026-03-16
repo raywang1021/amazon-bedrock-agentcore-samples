@@ -110,7 +110,37 @@ Agent (store_geo_content)
 
 ## Agent Tool 呼叫流程
 
-以 `evaluate_geo_score` 為例，一次完整的呼叫會經過兩次 Bedrock API call（Main agent 意圖判斷 + Sub-agent 執行），這是延遲的主要來源。
+### evaluate_geo_score — 三視角評分
+
+`evaluate_geo_score` 對同一 URL 做三次 fetch + 三次 LLM 評分，比較 GEO 優化前後差異：
+
+| 視角 | URL | User-Agent | 說明 |
+|------|-----|-----------|------|
+| as-is | 原始輸入 URL | 預設 UA | 無論輸入什麼就抓什麼 |
+| original | 去掉 `?ua=genaibot` | 預設 UA | 原始頁面（非 GEO 版本） |
+| geo | 去掉 `?ua=genaibot` | GPTBot/1.0 | GEO 優化版本 |
+
+特殊處理：
+- GEO 回應（`X-GEO-Optimized: true` header）直接使用 raw HTML，不經 trafilatura 提取，以保留結構化 GEO 信號（key takeaways、Q&A、schema markup）
+- 使用 `temperature=0.1` 的獨立 BedrockModel，確保評分一致性（不影響其他 tool 的 model 設定）
+
+```
+User → Agent → evaluate_geo_score(url)
+                    │
+                    ├── fetch as-is   (url, default UA)
+                    ├── fetch original (clean_url, default UA)
+                    └── fetch geo     (clean_url, GPTBot UA)
+                           │
+                    ┌──────┴──────┐
+                    │ X-GEO-      │
+                    │ Optimized?  │
+                    ├─ yes → raw HTML
+                    └─ no  → trafilatura extract
+                           │
+                    ├── sanitize × 3
+                    ├── LLM eval × 3 (temperature=0.1)
+                    └── return score_comparison + details
+```
 
 ```mermaid
 sequenceDiagram
@@ -289,6 +319,8 @@ llms.txt 內容由網站 owner 控制，類似 robots.txt 的管理方式。
 
 Table: `geo-content`，partition key: `url_path` (S)
 
+Key 格式為 `{host}#{path}`（例如 `d1sv1ydutd4m98.cloudfront.net#/world/123456`），支援多租戶。host 取自 CFF 設定的 `x-original-host` header。
+
 | 欄位 | 類型 | 說明 |
 |------|------|------|
 | `url_path` | S | URL 路徑（partition key） |
@@ -355,8 +387,11 @@ CloudFront OAC + Lambda Function URL（`AuthType: AWS_IAM`）：
 
 偵測到後，CFF 會：
 - 加上 `x-geo-bot: true`、`x-geo-bot-ua` header
+- 保存原始 host 到 `x-original-host` header（CF 切換 origin 時會覆寫 Host header）
 - 透過 `cf.selectRequestOriginById()` 切換到對應的 GEO origin
 - `x-origin-verify` header 由 CloudFront origin custom header 自動帶入
+
+`x-original-host` 和 `x-geo-bot` 都需在 CloudFront cache policy 中 whitelist，CF 才會轉發到 origin。
 
 ## Lambda 函數一覽
 
