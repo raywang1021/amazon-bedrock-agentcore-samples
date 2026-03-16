@@ -368,6 +368,10 @@ Resources:
 
   # ============================================================
   # DynamoDB (always created)
+  # Schema supports GEO score tracking:
+  #   - original_score: GEO score before rewriting
+  #   - geo_score: GEO score after rewriting
+  #   - score_improvement: calculated improvement (geo - original)
   # ============================================================
   GeoContentTable:
     Type: AWS::DynamoDB::Table

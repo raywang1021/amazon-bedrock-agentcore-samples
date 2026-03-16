@@ -142,6 +142,15 @@ def handler(event, context):
             }
             if host:
                 full_item["host"] = host
+            
+            # Copy GEO score tracking fields if present
+            if "original_score" in item:
+                full_item["original_score"] = item["original_score"]
+            if "geo_score" in item:
+                full_item["geo_score"] = item["geo_score"]
+            if "score_improvement" in item:
+                full_item["score_improvement"] = item["score_improvement"]
+            
             table.put_item(Item=full_item)
         except Exception as e:
             print(f"Failed to store content: {e}")

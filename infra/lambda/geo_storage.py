@@ -9,7 +9,15 @@ Expected payload:
     "geo_content": "<html>...</html>",
     "original_url": "https://example.com/world/3149600",
     "content_type": "text/html; charset=utf-8",
-    "generation_duration_ms": 12345
+    "generation_duration_ms": 12345,
+    "original_score": {
+        "overall_score": 45,
+        "dimensions": {...}
+    },
+    "geo_score": {
+        "overall_score": 78,
+        "dimensions": {...}
+    }
 }
 """
 
@@ -66,6 +74,20 @@ def handler(event, context):
     if gen_ms is not None:
         from decimal import Decimal
         item["generation_duration_ms"] = Decimal(str(gen_ms))
+
+    # Store GEO scores for tracking effectiveness
+    original_score = event.get("original_score")
+    if original_score:
+        item["original_score"] = original_score
+
+    geo_score = event.get("geo_score")
+    if geo_score:
+        item["geo_score"] = geo_score
+        # Calculate and store improvement for easy querying
+        if original_score and "overall_score" in original_score and "overall_score" in geo_score:
+            from decimal import Decimal
+            improvement = Decimal(str(geo_score["overall_score"])) - Decimal(str(original_score["overall_score"]))
+            item["score_improvement"] = improvement
 
     try:
         table.put_item(Item=item)
