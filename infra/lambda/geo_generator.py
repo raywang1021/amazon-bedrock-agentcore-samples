@@ -6,10 +6,12 @@ Records created_at and generation_duration_ms for observability.
 
 import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from urllib.parse import urlparse
 
 import boto3
 
@@ -82,45 +84,101 @@ def handler(event, context):
         return {"status": "failed", "url_path": url_path}
 
     # Agent's store_geo_content tool should have written to DDB.
-    # Verify and add timing metadata.
+    # The agent builds its key from the URL's host (e.g. news.tvbs.com.tw#/path),
+    # which may differ from the handler's key (e.g. d123.cloudfront.net#/path).
+    # Try both keys to find the agent's stored content.
+    item = None
+    agent_ddb_key = None
+
+    # 1. Try handler's composite key first (strongly consistent read)
     try:
-        response = table.get_item(Key={"url_path": url_path})
+        response = table.get_item(Key={"url_path": url_path}, ConsistentRead=True)
         item = response.get("Item")
     except Exception as e:
-        print(f"DDB read failed: {e}")
-        item = None
+        print(f"DDB read failed for {url_path}: {e}")
+
+    # 2. If not found or no geo_content, try agent's key (host from original_url)
+    if not item or not item.get("geo_content"):
+        parsed = urlparse(original_url)
+        origin_host = parsed.netloc
+        if origin_host:
+            agent_ddb_key = f"{origin_host}#{parsed.path or '/'}"
+            if agent_ddb_key != url_path:
+                try:
+                    response = table.get_item(
+                        Key={"url_path": agent_ddb_key}, ConsistentRead=True
+                    )
+                    item = response.get("Item")
+                    if item and item.get("geo_content"):
+                        print(
+                            f"Found agent content at {agent_ddb_key}, "
+                            f"will copy to {url_path}"
+                        )
+                except Exception as e:
+                    print(f"DDB read failed for {agent_ddb_key}: {e}")
 
     now = datetime.now(timezone.utc).isoformat()
     generator_duration_ms = int((time.time() - generator_start) * 1000)
 
     if item and item.get("geo_content"):
-        # Agent stored content — update status + timing
+        # Agent stored content — write full record at handler's key
+        # (may differ from agent's key due to host mismatch)
         try:
-            table.update_item(
-                Key={"url_path": url_path},
-                UpdateExpression="SET #s = :s, generation_duration_ms = :d, generator_duration_ms = :gd, #m = :mode, updated_at = :u, #ttl = :ttl",
-                ExpressionAttributeNames={"#s": "status", "#m": "mode", "#ttl": "ttl"},
-                ExpressionAttributeValues={
-                    ":s": "ready",
-                    ":d": Decimal(str(agent_duration_ms)),
-                    ":gd": Decimal(str(generator_duration_ms)),
-                    ":mode": trigger_mode,
-                    ":u": now,
-                    ":ttl": int(time.time()) + GEO_TTL_SECONDS,
-                },
-            )
+            full_item = {
+                "url_path": url_path,
+                "status": "ready",
+                "geo_content": item["geo_content"],
+                "content_type": item.get("content_type", "text/html; charset=utf-8"),
+                "original_url": original_url,
+                "created_at": item.get("created_at", now),
+                "updated_at": now,
+                "generation_duration_ms": Decimal(str(agent_duration_ms)),
+                "generator_duration_ms": Decimal(str(generator_duration_ms)),
+                "mode": trigger_mode,
+                "ttl": int(time.time()) + GEO_TTL_SECONDS,
+            }
+            if host:
+                full_item["host"] = host
+            table.put_item(Item=full_item)
         except Exception as e:
-            print(f"Failed to update status: {e}")
+            print(f"Failed to store content: {e}")
 
-        print(f"GEO content ready for {url_path} (agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)")
-        return {"status": "success", "url_path": url_path, "agent_duration_ms": agent_duration_ms, "generator_duration_ms": generator_duration_ms}
+        print(
+            f"GEO content ready for {url_path} "
+            f"(agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)"
+        )
+        return {
+            "status": "success",
+            "url_path": url_path,
+            "agent_duration_ms": agent_duration_ms,
+            "generator_duration_ms": generator_duration_ms,
+        }
 
-    # Agent didn't store in DDB — store the raw response ourselves
+    # Agent didn't store in DDB — try to extract HTML from raw response.
+    # The raw response may contain conversational text mixed with HTML.
+    # Only store if we can find actual HTML content.
+    html_match = re.search(
+        r"(<!DOCTYPE html.*|<html[\s>].*)", agent_response, re.DOTALL | re.IGNORECASE
+    )
+    if html_match:
+        geo_content = html_match.group(1).strip()
+    else:
+        # No HTML found — don't store conversational text as GEO content
+        print(
+            f"No HTML content found in agent response for {url_path}, "
+            f"marking as failed"
+        )
+        try:
+            table.delete_item(Key={"url_path": url_path})
+        except Exception:
+            pass
+        return {"status": "failed", "url_path": url_path, "reason": "no_html_in_response"}
+
     try:
         fallback_item = {
             "url_path": url_path,
             "status": "ready",
-            "geo_content": agent_response,
+            "geo_content": geo_content,
             "content_type": "text/html; charset=utf-8",
             "original_url": original_url,
             "created_at": now,
@@ -128,19 +186,27 @@ def handler(event, context):
             "generation_duration_ms": Decimal(str(agent_duration_ms)),
             "generator_duration_ms": Decimal(str(generator_duration_ms)),
             "mode": trigger_mode,
+            "source": "fallback",
             "ttl": int(time.time()) + GEO_TTL_SECONDS,
         }
         if host:
             fallback_item["host"] = host
         table.put_item(Item=fallback_item)
-        print(f"Stored raw agent response for {url_path} (agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)")
+        print(
+            f"Stored extracted HTML for {url_path} "
+            f"(agent: {agent_duration_ms}ms, generator: {generator_duration_ms}ms)"
+        )
     except Exception as e:
         print(f"Failed to store content: {e}")
-        # Reset status so it can be retried
         try:
             table.delete_item(Key={"url_path": url_path})
         except Exception:
             pass
         return {"status": "failed", "url_path": url_path}
 
-    return {"status": "success", "url_path": url_path, "agent_duration_ms": agent_duration_ms, "generator_duration_ms": generator_duration_ms}
+    return {
+        "status": "success",
+        "url_path": url_path,
+        "agent_duration_ms": agent_duration_ms,
+        "generator_duration_ms": generator_duration_ms,
+    }

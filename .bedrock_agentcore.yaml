@@ -32,7 +32,7 @@ agents:
     bedrock_agentcore:
       agent_id: geo_agent-XigVMZC5tE
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:023268648855:runtime/geo_agent-XigVMZC5tE
-      agent_session_id: null
+      agent_session_id: a6c28a02-3ac4-4e9e-817b-2ec1772d1862
     codebuild:
       project_name: null
       execution_role: null
