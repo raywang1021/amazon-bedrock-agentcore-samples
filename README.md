@@ -26,10 +26,12 @@ src/
 
 infra/
 ├── template.yaml                    # SAM: DynamoDB + Lambda（支援 ALB / OAC 雙模式）
+├── cloudfront-distribution.yaml     # CloudFormation: 全新 CF distribution（情境 1）
 ├── lambda/
 │   ├── geo_content_handler.py       # 服務 GEO 內容（3 種 cache-miss 模式）
 │   ├── geo_generator.py             # 非同步呼叫 AgentCore 產生內容
-│   └── geo_storage.py               # Agent 寫入 DDB 的 storage service
+│   ├── geo_storage.py               # Agent 寫入 DDB 的 storage service
+│   └── cf_origin_setup.py           # Custom Resource: 自動設定既有 CF distribution（情境 2）
 └── cloudfront-function/
     ├── geo-router.js                # CFF: AI bot 偵測 + ALB origin 切換
     ├── geo-router-oac.js            # CFF: AI bot 偵測 + Lambda Function URL origin 切換（OAC）
