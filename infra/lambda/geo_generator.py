@@ -126,6 +126,18 @@ def handler(event, context):
     if item and item.get("geo_content"):
         # Agent stored content — write full record at handler's key
         # (may differ from agent's key due to host mismatch)
+        # Validate that geo_content is actual HTML, not agent conversation text
+        gc = item["geo_content"].strip()
+        if not (gc.startswith("<") or gc.lower().startswith("<!doctype")):
+            print(
+                f"Skipping non-HTML content at {agent_ddb_key or url_path}: "
+                f"{gc[:80]}..."
+            )
+            try:
+                table.delete_item(Key={"url_path": url_path})
+            except Exception:
+                pass
+            return {"status": "failed", "url_path": url_path, "reason": "non_html_content"}
         try:
             full_item = {
                 "url_path": url_path,
@@ -169,8 +181,11 @@ def handler(event, context):
     # Agent didn't store in DDB — try to extract HTML from raw response.
     # The raw response may contain conversational text mixed with HTML.
     # Only store if we can find actual HTML content.
+    # Match common HTML root elements (rewriter may output <article> instead of <html>)
     html_match = re.search(
-        r"(<!DOCTYPE html.*|<html[\s>].*)", agent_response, re.DOTALL | re.IGNORECASE
+        r"(<(?:!DOCTYPE html|html|article|section|div|main|head)[\s>].*)",
+        agent_response,
+        re.DOTALL | re.IGNORECASE,
     )
     if html_match:
         geo_content = html_match.group(1).strip()

@@ -109,6 +109,16 @@ Do NOT wrap your output in ```html or ``` markers."""
     geo_content = re.sub(r'^```(?:html)?\s*\n', '', geo_content)
     geo_content = re.sub(r'\n```\s*$', '', geo_content)
 
+    # Strip any conversational prefix before the first HTML tag.
+    # The rewriter sometimes outputs "Here's the optimized content:" before HTML.
+    html_start = re.search(r'<(?:!doctype|html|head|body|article|section|div|h[1-6]|main|header|nav|p\b)', geo_content, re.IGNORECASE)
+    if html_start and html_start.start() > 0:
+        geo_content = geo_content[html_start.start():]
+
+    # Final guard: if geo_content doesn't look like HTML at all, bail out
+    if not geo_content.strip().startswith('<'):
+        return f"Rewriter did not produce HTML for {url}, skipping storage"
+
     # Store content immediately (don't wait for scoring)
     parsed = urlparse(url)
     url_path = parsed.path or "/"

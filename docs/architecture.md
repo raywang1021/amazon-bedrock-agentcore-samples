@@ -2,84 +2,45 @@
 
 ## 系統總覽
 
-本系統支援兩種 origin 模式，由 SAM template 的 `OriginMode` 參數控制：
-
-### 模式 A：ALB（`OriginMode=alb`）
-
-```
-使用者/管理員                        AI Bot (GPTBot, ClaudeBot...)
-     │                                      │
-     │ agentcore invoke                     │ 訪問網站
-     ▼                                      ▼
-┌──────────────┐                   ┌──────────────────┐
-│ AgentCore    │                   │ CloudFront       │
-│ GEO Agent    │                   │ (CDN)            │
-│              │                   └────────┬─────────┘
-│ 4 Tools:     │                            │
-│ - rewrite    │                   ┌────────▼─────────┐
-│ - evaluate   │                   │ CFF              │
-│ - llms.txt   │                   │ geo-bot-router   │
-│ - store_geo  │                   │ 偵測 User-Agent  │
-└──────┬───────┘                   └───┬─────────┬────┘
-       │                               │         │
-       │ lambda:InvokeFunction    AI Bot│    一般使用者
-       ▼                               │         ▼
-┌──────────────┐                       ▼    原站 Origin
-│ geo-content- │              ┌────────────┐  (不變)
-│ storage      │              │ ALB        │
-│ Lambda       │              │ SG: CF     │
-└──────┬───────┘              │ prefix list│
-       │ put_item             └─────┬──────┘
-       ▼                            │
-┌──────────────┐              ┌─────▼──────┐
-│ DynamoDB     │◄─────────────│ Lambda     │
-│ geo-content  │   get_item   │ handler    │
-└──────────────┘              └────────────┘
-```
-
-### 模式 B：OAC（`OriginMode=oac`，推薦）
+本系統使用 CloudFront OAC + Lambda Function URL 架構，零額外成本（無 ALB/VPC）。
+多個 CloudFront distribution 共用同一組 Lambda + DynamoDB，透過 `{host}#{path}` composite key 實現多租戶。
 
 ```
-使用者/管理員                        AI Bot (GPTBot, ClaudeBot...)
-     │                                      │
-     │ agentcore invoke                     │ 訪問網站
-     ▼                                      ▼
-┌──────────────┐                   ┌──────────────────┐
-│ AgentCore    │                   │ CloudFront       │
-│ GEO Agent    │                   │ (CDN)            │
-│              │                   └────────┬─────────┘
-│ 4 Tools:     │                            │
-│ - rewrite    │                   ┌────────▼─────────┐
-│ - evaluate   │                   │ CFF              │
-│ - llms.txt   │                   │ geo-bot-router   │
-│ - store_geo  │                   │ -oac             │
-└──────┬───────┘                   └───┬─────────┬────┘
-       │                               │         │
-       │ lambda:InvokeFunction    AI Bot│    一般使用者
-       ▼                               │         ▼
-┌──────────────┐                       ▼    原站 Origin
-│ geo-content- │              ┌────────────┐  (不變)
-│ storage      │              │ Lambda     │
-│ Lambda       │              │ Function   │
-└──────┬───────┘              │ URL (OAC)  │
-       │ put_item             │ SigV4 認證 │
-       ▼                      └─────┬──────┘
-┌──────────────┐                    │
-│ DynamoDB     │◄───────────────────┘
-│ geo-content  │         get_item
+AI Bot (GPTBot, ClaudeBot...)
+     │
+     │ 訪問網站
+     ▼
+┌──────────────────┐
+│ CloudFront       │  ← 多個 distribution 共用同一 Lambda origin
+│ (CDN)            │
+└────────┬─────────┘
+         │
+┌────────▼─────────┐
+│ CFF              │
+│ geo-bot-router   │
+│ -oac             │
+│ 偵測 User-Agent  │
+│ 設定 x-original- │
+│ host header      │
+└───┬─────────┬────┘
+    │         │
+AI Bot    一般使用者
+    │         ▼
+    ▼    原站 Origin (不變)
+┌────────────┐
+│ Lambda     │
+│ Function   │
+│ URL (OAC)  │
+│ SigV4 認證 │
+└─────┬──────┘
+      │
+      ▼
+┌──────────────┐
+│ DynamoDB     │
+│ geo-content  │
+│ {host}#path  │
 └──────────────┘
 ```
-
-### 模式比較
-
-| | ALB 模式 | OAC 模式 |
-|---|---|---|
-| Origin | ALB → Lambda | Lambda Function URL |
-| 安全機制 | SG (CF prefix list) + `x-origin-verify` | SigV4 (IAM auth) + `x-origin-verify` |
-| CFF | `geo-bot-router` → `geo-alb-origin` | `geo-bot-router-oac` → `geo-lambda-origin` |
-| 需要 VPC | ✅ | ❌ |
-| 額外成本 | ALB + VPC | 零 |
-| 推薦 | 已有 VPC 環境 | 新部署、PoC |
 
 ## Agent ↔ DynamoDB 解耦架構
 
@@ -94,6 +55,7 @@ Agent (store_geo_content)
 │ geo-content-     │
 │ storage Lambda   │
 │ (DDB CRUD)       │
+│ + HTML 驗證      │
 └────────┬─────────┘
          │ put_item
          ▼
@@ -108,11 +70,85 @@ Agent (store_geo_content)
 - DDB schema 變更不影響 Agent 程式碼
 - Storage Lambda 可獨立擴展、加 validation、加 logging
 
+## Bedrock Guardrail（可選）
+
+系統支援 Bedrock Guardrail，透過環境變數啟用：
+
+| 環境變數 | 預設值 | 說明 |
+|---------|--------|------|
+| `BEDROCK_GUARDRAIL_ID` | （空，不啟用） | Guardrail ID |
+| `BEDROCK_GUARDRAIL_VERSION` | `DRAFT` | Guardrail 版本 |
+
+設定 `BEDROCK_GUARDRAIL_ID` 後，所有透過 `load_model()` 建立的 BedrockModel 都會自動套用 guardrail。
+這包含主 agent、rewrite sub-agent、score evaluation sub-agent。
+
+Guardrail 可用於：
+- 過濾不當內容（仇恨言論、暴力、色情等）
+- 限制 PII 洩漏
+- 自訂 denied topics（例如禁止產生特定類型內容）
+- 防止 prompt injection 攻擊（搭配 `sanitize.py` 雙重防護）
+
+## HTML 內容驗證（三層防護）
+
+為防止 agent 對話文字（如 "Here's your GEO content..."）被誤存為 `geo_content`，系統在三個層級做 HTML 驗證：
+
+| 層級 | 位置 | 驗證邏輯 |
+|------|------|---------|
+| 1 | `store_geo_content.py`（Agent tool） | Strip 對話前綴，找到第一個 HTML tag 才開始；完全沒 HTML 則不存 |
+| 2 | `geo_generator.py`（Generator Lambda） | 從 agent response 提取 HTML 時，regex 匹配 `<article>`、`<section>` 等常見標籤 |
+| 3 | `geo_storage.py`（Storage Lambda） | 最後防線：`geo_content` 不以 `<` 開頭直接 reject 400 |
+
+Handler 讀取 cache 時也會驗證：非 HTML 內容會被 purge 並觸發重新生成。
+
+## 多租戶架構
+
+多個 CloudFront distribution 共用同一組 Lambda（`geo-content-handler`、`geo-content-generator`、`geo-content-storage`）和同一張 DynamoDB table。
+
+### 路由流程
+
+1. Bot 訪問 `dq324v08a4yas.cloudfront.net/cars/3141215`
+2. CFF 偵測 bot → 設定 `x-original-host: dq324v08a4yas.cloudfront.net` → 路由到 `geo-lambda-origin`
+3. Handler 用 `x-original-host` 建立 DDB key：`dq324v08a4yas.cloudfront.net#/cars/3141215`
+4. Cache miss → Handler 用 `x-original-host` 作為 fetch URL 的 host（CloudFront default behavior 會 proxy 到正確的 origin site）
+5. 觸發 async generator → AgentCore → 存入 DDB
+
+### DDB Key 格式
+
+`{host}#{path}[?query]`
+
+例如：
+- `dq324v08a4yas.cloudfront.net#/cars/3141215`
+- `dlmwhof468s34.cloudfront.net#/News.aspx?NewsID=1808081`
+
+### 新增站台
+
+1. 建立 CloudFront distribution，default origin 指向原站
+2. 加 `geo-lambda-origin` origin，指向 `geo-content-handler` 的 Function URL + OAC
+3. 關聯 `geo-bot-router-oac` CFF
+4. 在 `geo-content-handler` Lambda 加上該 distribution 的 `InvokeFunctionUrl` permission
+
 ## Agent Tool 呼叫流程
 
-### evaluate_geo_score — 三視角評分
+### store_geo_content — 抓取 + 改寫 + 存儲
 
-`evaluate_geo_score` 對同一 URL 做三次 fetch + 三次 LLM 評分，比較 GEO 優化前後差異：
+```
+store_geo_content(url)
+    │
+    ├── fetch_page_text(url)
+    ├── sanitize_web_content(raw_text)
+    ├── Rewriter Agent → GEO HTML
+    │   ├── Strip markdown code blocks
+    │   ├── Strip 對話前綴（找第一個 HTML tag）
+    │   └── 驗證以 < 開頭
+    ├── Storage Lambda → DDB（立即存入，不等評分）
+    │
+    └── ThreadPoolExecutor（並行評分）
+        ├── _evaluate_content_score(original, "original")
+        └── _evaluate_content_score(geo, "geo-optimized")
+            └── Storage Lambda → DDB（async 更新分數）
+```
+
+### evaluate_geo_score — 三視角評分
 
 | 視角 | URL | User-Agent | 說明 |
 |------|-----|-----------|------|
@@ -120,294 +156,80 @@ Agent (store_geo_content)
 | original | 去掉 `?ua=genaibot` | 預設 UA | 原始頁面（非 GEO 版本） |
 | geo | 去掉 `?ua=genaibot` | GPTBot/1.0 | GEO 優化版本 |
 
-特殊處理：
-- GEO 回應（`X-GEO-Optimized: true` header）直接使用 raw HTML，不經 trafilatura 提取，以保留結構化 GEO 信號（key takeaways、Q&A、schema markup）
-- 使用 `temperature=0.1` 的獨立 BedrockModel，確保評分一致性（不影響其他 tool 的 model 設定）
+## Edge Serving 流程（Passthrough 模式，預設）
 
 ```
-User → Agent → evaluate_geo_score(url)
-                    │
-                    ├── fetch as-is   (url, default UA)
-                    ├── fetch original (clean_url, default UA)
-                    └── fetch geo     (clean_url, GPTBot UA)
-                           │
-                    ┌──────┴──────┐
-                    │ X-GEO-      │
-                    │ Optimized?  │
-                    ├─ yes → raw HTML
-                    └─ no  → trafilatura extract
-                           │
-                    ├── sanitize × 3
-                    ├── LLM eval × 3 (temperature=0.1)
-                    └── return score_comparison + details
-```
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant AgentCore
-    participant MainAgent as Strands Agent
-    participant Claude1 as Claude (Main)
-    participant Tool as evaluate_geo_score
-    participant Sanitize as sanitize
-    participant Claude2 as Claude (Sub-agent)
-
-    User->>AgentCore: "評估 GEO 分數: https://..."
-    AgentCore->>MainAgent: payload + prompt
-    MainAgent->>Claude1: prompt + tools list
-    Claude1-->>MainAgent: tool_use: evaluate_geo_score(url)
-    MainAgent->>Tool: call function(url)
-    Tool->>Tool: fetch webpage (requests + trafilatura)
-    Tool->>Sanitize: sanitize_web_content(raw text)
-    Sanitize-->>Tool: cleaned text
-    Tool->>Claude2: EVAL_SYSTEM_PROMPT + cleaned text
-    Claude2-->>Tool: JSON scores
-    Tool-->>MainAgent: tool result (JSON)
-    MainAgent->>Claude1: tool result
-    Claude1-->>MainAgent: final response
-    MainAgent-->>AgentCore: stream response
-    AgentCore-->>User: streaming text
-```
-
-```
-User          AgentCore      Strands Agent   Claude (Main)   evaluate_geo_score  sanitize    Claude (Sub)
- │                │                │               │                │               │              │
- │  prompt        │                │               │                │               │              │
- │───────────────>│  payload       │               │                │               │              │
- │                │───────────────>│  prompt+tools  │                │               │              │
- │                │                │──────────────>│                │               │              │
- │                │                │  tool_use     │                │               │              │
- │                │                │<──────────────│                │               │              │
- │                │                │  call(url)    │                │               │              │
- │                │                │──────────────────────────────>│               │              │
- │                │                │               │                │  fetch webpage │              │
- │                │                │               │                │──> requests   │              │
- │                │                │               │                │<── html       │              │
- │                │                │               │                │  sanitize()   │              │
- │                │                │               │                │──────────────>│              │
- │                │                │               │                │  clean text   │              │
- │                │                │               │                │<──────────────│              │
- │                │                │               │                │  prompt+text  │              │
- │                │                │               │                │─────────────────────────────>│
- │                │                │               │                │  JSON scores  │              │
- │                │                │               │                │<─────────────────────────────│
- │                │                │  tool result  │                │               │              │
- │                │                │<──────────────────────────────│               │              │
- │                │                │  tool result  │                │               │              │
- │                │                │──────────────>│                │               │              │
- │                │                │  response     │                │               │              │
- │                │                │<──────────────│                │               │              │
- │                │  stream        │               │                │               │              │
- │                │<───────────────│               │                │               │              │
- │  streaming text│                │               │                │               │              │
- │<───────────────│                │               │                │               │              │
-```
-
-## Edge Serving 流程
-
-### ALB 模式 — Passthrough（預設）
-
-```mermaid
-sequenceDiagram
-    participant Bot as AI Bot
-    participant CF as CloudFront
-    participant CFF as geo-bot-router
-    participant ALB as ALB (SG: CF prefix list)
-    participant Lambda as geo-content-handler
-    participant DDB as DynamoDB
-    participant Gen as geo-content-generator
-    participant AC as AgentCore
-
-    Bot->>CF: GET /world/3149600
-    CF->>CFF: viewer-request
-    CFF->>CFF: 偵測 AI bot User-Agent
-    CFF->>ALB: selectRequestOriginById('geo-alb-origin')
-    ALB->>Lambda: forward request
-    Lambda->>DDB: get_item(url_path)
-
-    alt status=ready (cache hit)
-        DDB-->>Lambda: GEO 內容
-        Lambda-->>Bot: 200 + GEO HTML
-    else 無資料 (cache miss)
-        DDB-->>Lambda: (empty)
-        Lambda->>DDB: put_item(status=processing)
-        Lambda->>Gen: invoke(async)
-        Lambda->>Lambda: fetch 原始網頁
-        Lambda-->>Bot: 200 + 原始 HTML
-        Gen->>AC: invoke_agent_runtime
-        AC-->>Gen: GEO 內容（agent 寫入 DDB）
-        Gen->>DDB: update(status=ready)
-    end
-```
-
-### OAC 模式 — Passthrough（預設）
-
-```mermaid
-sequenceDiagram
-    participant Bot as AI Bot
-    participant CF as CloudFront
-    participant CFF as geo-bot-router-oac
-    participant Lambda as Lambda Function URL (OAC)
-    participant DDB as DynamoDB
-    participant Gen as geo-content-generator
-    participant AC as AgentCore
-
-    Bot->>CF: GET /world/3149600
-    CF->>CFF: viewer-request
-    CFF->>CFF: 偵測 AI bot User-Agent
-    CFF->>Lambda: selectRequestOriginById('geo-lambda-origin')
-    Note over CF,Lambda: CloudFront 用 SigV4 簽署 request
-    Lambda->>DDB: get_item(url_path)
-
-    alt status=ready (cache hit)
-        DDB-->>Lambda: GEO 內容
-        Lambda-->>Bot: 200 + GEO HTML
-    else 無資料 (cache miss)
-        DDB-->>Lambda: (empty)
-        Lambda->>DDB: put_item(status=processing)
-        Lambda->>Gen: invoke(async)
-        Lambda->>Lambda: fetch 原始網頁
-        Lambda-->>Bot: 200 + 原始 HTML
-        Gen->>AC: invoke_agent_runtime
-        AC-->>Gen: GEO 內容（agent 寫入 DDB）
-        Gen->>DDB: update(status=ready)
-    end
-```
-
-### Sync 模式
-
-```mermaid
-sequenceDiagram
-    participant Bot as AI Bot
-    participant Lambda as geo-content-handler
-    participant DDB as DynamoDB
-    participant AC as AgentCore
-
-    Bot->>Lambda: GET /path?mode=sync
-    Lambda->>DDB: get_item → cache miss
-    Lambda->>DDB: put_item(status=processing)
-    Lambda->>AC: invoke_agent_runtime（等待 ~30-40s）
-    AC-->>Lambda: 完成
-    Lambda->>DDB: get_item → status=ready
-    Lambda->>DDB: update(handler_duration_ms, generation_duration_ms)
-    Lambda-->>Bot: 200 + GEO HTML
+Bot → CloudFront → CFF（偵測 bot）→ Lambda Function URL (OAC SigV4)
+                                          │
+                                    ┌─────▼─────┐
+                                    │ DDB lookup │
+                                    └─────┬─────┘
+                                          │
+                              ┌───────────┼───────────┐
+                              │           │           │
+                         status=ready  processing  no record
+                              │           │           │
+                         HTML 驗證     stale?      mark processing
+                              │        ├─ yes →    trigger async
+                         ┌────┴────┐   │  reset    fetch original
+                         │ pass  │ │   └─ no →     return original
+                         │       │ │     passthrough
+                    return GEO  purge &
+                    HTML        regenerate
 ```
 
 ## Cache Miss 模式
 
-Lambda 支援三種 cache miss 處理模式，透過 querystring `?mode=` 切換：
-
 | 模式 | querystring | 行為 | 適用場景 |
 |------|------------|------|---------|
-| passthrough（預設）| 無 或 `?mode=passthrough` | 回原始內容 + 非同步產生 | 正式環境，bot 不會空手而歸 |
+| passthrough（預設）| 無 或 `?mode=passthrough` | 回原始內容 + 非同步產生 | 正式環境 |
 | async | `?mode=async` | 回 202 + 非同步產生 | 測試用 |
-| sync | `?mode=sync` | 等 AgentCore 產生完才回 | 測試用，需較長 timeout |
-
-## llms.txt 支援
-
-DDB 可存放 `/llms.txt` 內容（`content_type: text/markdown`），AI bot 訪問時由 CFF 偵測並路由到 Lambda，回傳 Markdown 格式的網站索引。
-
-流程：
-1. 用 Agent 的 `generate_llms_txt` tool 產出草稿
-2. 網站 owner 審核/編輯內容
-3. 透過 `geo-content-storage` Lambda 存入 DDB（`url_path: /llms.txt`）
-4. AI bot 訪問 `/llms.txt` → CFF 偵測 → Lambda → DDB → 回傳 Markdown
-
-llms.txt 內容由網站 owner 控制，類似 robots.txt 的管理方式。
+| sync | `?mode=sync` | 等 AgentCore 產生完才回 | 測試用 |
 
 ## DynamoDB Schema
 
 Table: `geo-content`，partition key: `url_path` (S)
 
-Key 格式為 `{host}#{path}[?query]`（例如 `dlmwhof468s34.cloudfront.net#/News.aspx?NewsID=1807523`），支援多租戶。host 取自 CFF 設定的 `x-original-host` header。業務 query params 會納入 key（按 key 排序），控制參數（`ua`、`mode`、`purge`）會被過濾。
-
-### Query String 處理
-
-Handler 在 fetch 原始內容時，會保留 query string 中的業務參數（如 `NewsID=1807523`），但過濾掉系統控制參數：
-
-| 參數 | 用途 | fetch 時保留 |
-|------|------|-------------|
-| `ua` | CFF bot 偵測模擬 | ❌ 過濾 |
-| `mode` | cache miss 模式切換 | ❌ 過濾 |
-| `purge` | 清除 DDB 快取 | ❌ 過濾 |
-| 其他（如 `NewsID`）| 業務參數 | ✅ 保留 |
-
 | 欄位 | 類型 | 說明 |
 |------|------|------|
-| `url_path` | S | URL 路徑（partition key） |
-| `status` | S | `processing`（產生中）/ `ready`（可服務） |
-| `geo_content` | S | GEO 優化後的內容（HTML 或 Markdown） |
-| `content_type` | S | `text/html; charset=utf-8` 或 `text/markdown; charset=utf-8` |
+| `url_path` | S | `{host}#{path}[?query]`（partition key） |
+| `status` | S | `processing` / `ready` |
+| `geo_content` | S | GEO 優化後的 HTML |
+| `content_type` | S | `text/html; charset=utf-8` |
 | `original_url` | S | 原始完整 URL |
-| `mode` | S | 觸發模式：`passthrough` / `async` / `sync` |
-| `created_at` | S | 記錄建立時間（ISO 8601 UTC） |
+| `mode` | S | `passthrough` / `async` / `sync` |
+| `host` | S | 來源 host |
+| `created_at` | S | ISO 8601 UTC |
 | `updated_at` | S | 最後更新時間 |
-| `generation_duration_ms` | N | AgentCore 產生 GEO 內容的純時間（ms） |
-| `handler_duration_ms` | N | handler Lambda 整體處理時間（sync mode 寫入） |
-| `generator_duration_ms` | N | generator Lambda 整體處理時間（async/passthrough mode 寫入） |
-| `host` | S | 來源 host（handler 取自 request header，agent 取自 URL netloc，供未來多租戶用） |
+| `generation_duration_ms` | N | AgentCore 產生時間（ms） |
+| `generator_duration_ms` | N | Generator Lambda 整體時間（ms） |
+| `original_score` | M | 改寫前 GEO 分數 |
+| `geo_score` | M | 改寫後 GEO 分數 |
+| `score_improvement` | N | 分數改善（geo - original） |
 | `ttl` | N | DynamoDB TTL（Unix timestamp） |
-
-### 時間欄位說明
-
-- `generation_duration_ms`：純粹 AgentCore invoke 的時間，不含 DDB 讀寫
-- `handler_duration_ms`：handler Lambda 從收到 request 到回傳 response 的總時間，只在 sync mode 寫入
-- `generator_duration_ms`：generator Lambda 從啟動到完成的總時間，只在 async/passthrough mode 寫入
 
 ## Response Headers
 
-Lambda 回傳的 response 會帶以下自訂 header：
-
-| Header | 說明 | 出現時機 |
-|--------|------|---------|
-| `X-GEO-Optimized: true` | 標記為 GEO 優化內容 | cache hit / sync 產生成功 |
-| `X-GEO-Source` | `cache` / `generated` / `passthrough` | 所有 response |
-| `X-GEO-Handler-Ms` | handler Lambda 整體處理時間（ms） | 所有 response |
-| `X-GEO-Duration-Ms` | AgentCore 產生時間（ms） | cache hit / sync 產生 |
-| `X-GEO-Created` | GEO 內容建立時間 | cache hit |
+| Header | 說明 |
+|--------|------|
+| `X-GEO-Optimized: true` | GEO 優化內容 |
+| `X-GEO-Source` | `cache` / `generated` / `passthrough` |
+| `X-GEO-Handler-Ms` | Handler 處理時間（ms） |
+| `X-GEO-Duration-Ms` | AgentCore 產生時間（ms） |
+| `X-GEO-Created` | 內容建立時間 |
 
 ## Origin 保護
-
-### 模式 A：ALB
-
-雙層保護：
-1. 網路層：ALB Security Group 只允許 CloudFront managed prefix list（`com.amazonaws.global.cloudfront.origin-facing`）的 IP 存取
-2. 應用層（defense-in-depth）：CloudFront origin custom header `x-origin-verify`，Lambda 驗證匹配
-
-### 模式 B：OAC（推薦）
 
 CloudFront OAC + Lambda Function URL（`AuthType: AWS_IAM`）：
 1. CloudFront 使用 SigV4 簽署每個 origin request
 2. Lambda Function URL 只接受 IAM 認證的請求
-3. Lambda permission 限制只有指定的 CloudFront distribution 可以 invoke
-
-兩種模式都額外保留 `x-origin-verify` custom header 作為 defense-in-depth。
-
-## CloudFront Function
-
-兩個 CFF 分別對應兩種 origin 模式：
-
-| CFF | Origin ID | 用途 |
-|-----|-----------|------|
-| `geo-bot-router` | `geo-alb-origin` | ALB 模式 |
-| `geo-bot-router-oac` | `geo-lambda-origin` | OAC 模式 |
-
-偵測邏輯相同：
-1. User-Agent 比對：GPTBot、ClaudeBot、PerplexityBot、BingBot 等常見 AI 爬蟲
-2. Querystring 模擬：`?ua=genaibot` 用於測試
-
-偵測到後，CFF 會：
-- 加上 `x-geo-bot: true`、`x-geo-bot-ua` header
-- 保存原始 host 到 `x-original-host` header（CF 切換 origin 時會覆寫 Host header）
-- 透過 `cf.selectRequestOriginById()` 切換到對應的 GEO origin
-- `x-origin-verify` header 由 CloudFront origin custom header 自動帶入
-
-`x-original-host` 和 `x-geo-bot` 都需在 CloudFront cache policy 中 whitelist，CF 才會轉發到 origin。
+3. Lambda permission 限制指定的 CloudFront distribution 可以 invoke
+4. `x-origin-verify` custom header 作為 defense-in-depth
 
 ## Lambda 函數一覽
 
-| Lambda | 用途 | DDB 權限 | 備註 |
-|--------|------|---------|------|
-| `geo-content-handler` | 讀取 DDB 回傳 GEO 內容 | CRUD | 支援 ALB 和 Function URL 兩種 event 格式 |
-| `geo-content-generator` | 非同步呼叫 AgentCore 產生 GEO 內容 | CRUD | 由 handler 非同步觸發 |
-| `geo-content-storage` | 接收 Agent 的寫入請求，存入 DDB | CRUD | Agent 透過 `lambda:InvokeFunction` 呼叫 |
+| Lambda | 用途 | 備註 |
+|--------|------|------|
+| `geo-content-handler` | 讀取 DDB 回傳 GEO 內容 | Function URL + OAC，多租戶 |
+| `geo-content-generator` | 非同步呼叫 AgentCore | 由 handler 觸發 |
+| `geo-content-storage` | Agent 寫入 DDB | 含 HTML 驗證 |

@@ -32,8 +32,6 @@ python test_score_tracking.py
 
 ## 部署步驟
 
-### 方式 1: AgentCore 部署（推薦）
-
 ```bash
 # 1. 確保在虛擬環境中
 source .venv/bin/activate
@@ -42,17 +40,8 @@ source .venv/bin/activate
 agentcore deploy
 
 # 3. 部署 SAM 基礎設施（Lambda 函數）
-sam build
-sam deploy --guided
-```
-
-### 方式 2: 僅更新 Lambda 函數
-
-如果只需要更新 Lambda 函數而不重新部署 Agent：
-
-```bash
-sam build
-sam deploy
+sam build -t infra/template.yaml
+sam deploy -t infra/template.yaml
 ```
 
 ## 部署後驗證

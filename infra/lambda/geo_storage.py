@@ -50,6 +50,15 @@ def handler(event, context):
             "body": json.dumps({"error": "url_path and geo_content are required"}),
         }
 
+    # Last-line-of-defense: reject content that isn't HTML
+    stripped = geo_content.strip()
+    if not (stripped.startswith("<") or stripped.lower().startswith("<!doctype")):
+        print(f"Rejected non-HTML content for {url_path}: {stripped[:80]}...")
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "geo_content must be HTML (must start with '<')"}),
+        }
+
     host = event.get("host", "")
     # Build composite DDB key for multi-tenancy: {host}#{path}
     ddb_key = f"{host}#{url_path}" if host else url_path

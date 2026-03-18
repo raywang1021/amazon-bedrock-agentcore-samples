@@ -1,20 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >-
-  GEO Edge Serving Infrastructure.
-  Supports two origin modes:
-    - alb: ALB + Security Group (CloudFront prefix list) + VPC
-    - oac: Lambda Function URL + CloudFront OAC (SigV4, zero extra cost)
+  GEO Edge Serving Infrastructure (OAC mode).
+  Lambda Function URL + CloudFront OAC (SigV4, zero extra cost).
 
 Parameters:
-  OriginMode:
-    Type: String
-    Default: alb
-    AllowedValues: [alb, oac]
-    Description: >-
-      Origin mode for CloudFront to Lambda connectivity.
-      alb = ALB with SG (requires VPC).
-      oac = Lambda Function URL with OAC SigV4 (no VPC needed).
   TableName:
     Type: String
     Default: geo-content
@@ -26,32 +16,16 @@ Parameters:
     Type: String
     Default: ""
     Description: Default origin host for reconstructing original URLs
-  DefaultOriginDomain:
-    Type: String
-    Default: ""
-    Description: Origin site domain for DDB multi-tenancy key (e.g. news.example.com)
   OriginVerifySecret:
     Type: String
     Default: "geo-agent-cf-origin-2026"
-    Description: Shared secret for defense-in-depth origin verification (ALB mode)
+    Description: Shared secret for defense-in-depth origin verification
   CloudFrontDistributionArn:
     Type: String
     Default: ""
     Description: >-
-      (OAC mode) CloudFront distribution ARN for Lambda permission.
+      CloudFront distribution ARN for Lambda permission.
       Format: arn:aws:cloudfront::ACCOUNT:distribution/DIST_ID
-  VpcId:
-    Type: String
-    Default: ""
-    Description: (ALB mode) Existing VPC ID. Leave empty to create a new VPC.
-  SubnetIds:
-    Type: CommaDelimitedList
-    Default: ""
-    Description: (ALB mode) Comma-separated public subnet IDs for ALB.
-  CloudFrontPrefixListId:
-    Type: String
-    Default: ""
-    Description: (ALB mode) CloudFront origin-facing managed prefix list ID.
   CreateTable:
     Type: String
     Default: "true"
@@ -71,7 +45,6 @@ Parameters:
     Default: ""
     Description: >-
       ARN of the CloudFront Function to associate with the distribution.
-      e.g. arn:aws:cloudfront::ACCOUNT:function/geo-bot-router-oac
   CffBehaviorPath:
     Type: String
     Default: "*"
@@ -81,222 +54,24 @@ Parameters:
 
 Conditions:
   HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
-  UseAlb: !Equals [!Ref OriginMode, "alb"]
-  UseOac: !Equals [!Ref OriginMode, "oac"]
   HasCfDistArn: !Not [!Equals [!Ref CloudFrontDistributionArn, ""]]
   ShouldCreateTable: !Equals [!Ref CreateTable, "true"]
   ShouldSetupCfOrigin: !And
     - !Equals [!Ref SetupCfOrigin, "true"]
-    - !Condition UseOac
     - !Condition HasCfDistArn
-  CreateVpc: !And
-    - !Condition UseAlb
-    - !Equals [!Ref VpcId, ""]
-  LookupPrefixList: !And
-    - !Condition UseAlb
-    - !Equals [!Ref CloudFrontPrefixListId, ""]
 
 Resources:
   # ============================================================
-  # VPC (ALB mode only, created if VpcId not provided)
-  # ============================================================
-  GeoVpc:
-    Type: AWS::EC2::VPC
-    Condition: CreateVpc
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: geo-agent-vpc
-
-  GeoIgw:
-    Type: AWS::EC2::InternetGateway
-    Condition: CreateVpc
-
-  GeoIgwAttach:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Condition: CreateVpc
-    Properties:
-      VpcId: !Ref GeoVpc
-      InternetGatewayId: !Ref GeoIgw
-
-  GeoRouteTable:
-    Type: AWS::EC2::RouteTable
-    Condition: CreateVpc
-    Properties:
-      VpcId: !Ref GeoVpc
-
-  GeoDefaultRoute:
-    Type: AWS::EC2::Route
-    Condition: CreateVpc
-    DependsOn: GeoIgwAttach
-    Properties:
-      RouteTableId: !Ref GeoRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref GeoIgw
-
-  GeoSubnetA:
-    Type: AWS::EC2::Subnet
-    Condition: CreateVpc
-    Properties:
-      VpcId: !Ref GeoVpc
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: geo-agent-subnet-a
-
-  GeoSubnetB:
-    Type: AWS::EC2::Subnet
-    Condition: CreateVpc
-    Properties:
-      VpcId: !Ref GeoVpc
-      CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select [1, !GetAZs ""]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: geo-agent-subnet-b
-
-  GeoSubnetARouteAssoc:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Condition: CreateVpc
-    Properties:
-      SubnetId: !Ref GeoSubnetA
-      RouteTableId: !Ref GeoRouteTable
-
-  GeoSubnetBRouteAssoc:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Condition: CreateVpc
-    Properties:
-      SubnetId: !Ref GeoSubnetB
-      RouteTableId: !Ref GeoRouteTable
-
-  # ============================================================
-  # Prefix List Lookup (ALB mode, auto-detect if not provided)
-  # ============================================================
-  PrefixListLookup:
-    Type: AWS::Serverless::Function
-    Condition: LookupPrefixList
-    Properties:
-      FunctionName: geo-prefix-list-lookup
-      Runtime: python3.12
-      Handler: index.handler
-      MemorySize: 128
-      Timeout: 30
-      InlineCode: |
-        import boto3
-        import cfnresponse
-        def handler(event, context):
-            if event["RequestType"] == "Delete":
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
-                return
-            try:
-                ec2 = boto3.client("ec2")
-                resp = ec2.describe_managed_prefix_lists(
-                    Filters=[{"Name": "prefix-list-name",
-                              "Values": ["com.amazonaws.global.cloudfront.origin-facing"]}]
-                )
-                pl_id = resp["PrefixLists"][0]["PrefixListId"]
-                cfnresponse.send(event, context, cfnresponse.SUCCESS,
-                                 {"PrefixListId": pl_id}, pl_id)
-            except Exception as e:
-                cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: ec2:DescribeManagedPrefixLists
-              Resource: "*"
-
-  PrefixListResource:
-    Type: AWS::CloudFormation::CustomResource
-    Condition: LookupPrefixList
-    Properties:
-      ServiceToken: !GetAtt PrefixListLookup.Arn
-
-  # ============================================================
-  # ALB Security Group (ALB mode only)
-  # ============================================================
-  AlbSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Condition: UseAlb
-    Properties:
-      GroupDescription: Allow HTTP from CloudFront origin-facing prefix list
-      VpcId: !If [CreateVpc, !Ref GeoVpc, !Ref VpcId]
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          SourcePrefixListId: !If
-            - LookupPrefixList
-            - !Ref PrefixListResource
-            - !Ref CloudFrontPrefixListId
-      Tags:
-        - Key: Name
-          Value: geo-agent-alb-sg
-
-  # ============================================================
-  # Application Load Balancer (ALB mode only)
-  # ============================================================
-  GeoAlb:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Condition: UseAlb
-    Properties:
-      Name: geo-agent-alb
-      Scheme: internet-facing
-      Type: application
-      SecurityGroups:
-        - !Ref AlbSecurityGroup
-      Subnets: !If
-        - CreateVpc
-        - [!Ref GeoSubnetA, !Ref GeoSubnetB]
-        - !Ref SubnetIds
-
-  GeoAlbListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Condition: UseAlb
-    Properties:
-      LoadBalancerArn: !Ref GeoAlb
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref GeoAlbTargetGroup
-
-  GeoAlbTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Condition: UseAlb
-    DependsOn: GeoContentFunctionPermissionForAlb
-    Properties:
-      Name: geo-agent-lambda-tg
-      TargetType: lambda
-      Targets:
-        - Id: !GetAtt GeoContentFunction.Arn
-
-  GeoContentFunctionPermissionForAlb:
-    Type: AWS::Lambda::Permission
-    Condition: UseAlb
-    Properties:
-      FunctionName: !Ref GeoContentFunction
-      Action: lambda:InvokeFunction
-      Principal: elasticloadbalancing.amazonaws.com
-
-  # ============================================================
-  # OAC: Lambda Function URL + Origin Access Control (OAC mode)
+  # OAC: Lambda Function URL + Origin Access Control
   # ============================================================
   GeoFunctionUrl:
     Type: AWS::Lambda::Url
-    Condition: UseOac
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt GeoContentFunction.Arn
 
   GeoLambdaOac:
     Type: AWS::CloudFront::OriginAccessControl
-    Condition: UseOac
     Properties:
       OriginAccessControlConfig:
         Name: geo-lambda-oac
@@ -305,30 +80,24 @@ Resources:
         SigningBehavior: always
         OriginAccessControlOriginType: lambda
 
+  # Allow ALL CloudFront distributions in this account to invoke the Lambda.
+  # Multiple distributions share this single handler for multi-tenancy.
   CloudFrontInvokeFunctionUrl:
     Type: AWS::Lambda::Permission
-    Condition: UseOac
     Properties:
       FunctionName: !Ref GeoContentFunction
       Action: lambda:InvokeFunctionUrl
       Principal: cloudfront.amazonaws.com
-      SourceArn: !If
-        - HasCfDistArn
-        - !Ref CloudFrontDistributionArn
-        - !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
+      SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
       FunctionUrlAuthType: AWS_IAM
 
   CloudFrontInvokeFunction:
     Type: AWS::Lambda::Permission
-    Condition: UseOac
     Properties:
       FunctionName: !Ref GeoContentFunction
       Action: lambda:InvokeFunction
       Principal: cloudfront.amazonaws.com
-      SourceArn: !If
-        - HasCfDistArn
-        - !Ref CloudFrontDistributionArn
-        - !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
+      SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
 
   # ============================================================
   # Custom Resource: auto-configure existing CF distribution
@@ -367,7 +136,7 @@ Resources:
       BehaviorPath: !Ref CffBehaviorPath
 
   # ============================================================
-  # DynamoDB (always created)
+  # DynamoDB
   # Schema supports GEO score tracking:
   #   - original_score: GEO score before rewriting
   #   - geo_score: GEO score after rewriting
@@ -390,7 +159,7 @@ Resources:
         Enabled: true
 
   # ============================================================
-  # Lambda: serves GEO content from DDB (always created)
+  # Lambda: serves GEO content from DDB
   # ============================================================
   GeoContentFunction:
     Type: AWS::Serverless::Function
@@ -421,8 +190,7 @@ Resources:
             FunctionName: !Ref GeoGeneratorFunction
         - Statement:
             - Effect: Allow
-              Action:
-                - bedrock-agentcore:InvokeAgentRuntime
+              Action: bedrock-agentcore:InvokeAgentRuntime
               Resource:
                 - !If
                   - HasAgentArn
@@ -435,13 +203,12 @@ Resources:
             - !If
               - HasCfDistArn
               - Effect: Allow
-                Action:
-                  - cloudfront:CreateInvalidation
+                Action: cloudfront:CreateInvalidation
                 Resource: !Ref CloudFrontDistributionArn
               - !Ref "AWS::NoValue"
 
   # ============================================================
-  # Lambda: async worker (always created)
+  # Lambda: async worker — invokes AgentCore to generate content
   # ============================================================
   GeoGeneratorFunction:
     Type: AWS::Serverless::Function
@@ -463,8 +230,7 @@ Resources:
             TableName: !Ref TableName
         - Statement:
             - Effect: Allow
-              Action:
-                - bedrock-agentcore:InvokeAgentRuntime
+              Action: bedrock-agentcore:InvokeAgentRuntime
               Resource:
                 - !If
                   - HasAgentArn
@@ -476,7 +242,7 @@ Resources:
                   - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*/runtime-endpoint/*"
 
   # ============================================================
-  # Lambda: storage service — Agent writes DDB via this Lambda
+  # Lambda: storage — Agent writes DDB via this Lambda
   # ============================================================
   GeoStorageFunction:
     Type: AWS::Serverless::Function
@@ -496,32 +262,22 @@ Resources:
             TableName: !Ref TableName
 
 Outputs:
-  OriginMode:
-    Description: Active origin mode
-    Value: !Ref OriginMode
   TableName:
     Condition: ShouldCreateTable
     Description: DynamoDB table name
     Value: !Ref GeoContentTable
+  HandlerFunctionName:
+    Description: Handler Lambda function name
+    Value: !Ref GeoContentFunction
   GeneratorFunctionName:
     Description: Async generator Lambda function name
     Value: !Ref GeoGeneratorFunction
   StorageFunctionName:
-    Description: Storage Lambda function name (Agent writes DDB via this)
+    Description: Storage Lambda function name
     Value: !Ref GeoStorageFunction
-  AlbDnsName:
-    Condition: UseAlb
-    Description: ALB DNS name
-    Value: !GetAtt GeoAlb.DNSName
-  SecurityGroupId:
-    Condition: UseAlb
-    Description: ALB Security Group
-    Value: !Ref AlbSecurityGroup
   FunctionUrl:
-    Condition: UseOac
     Description: Lambda Function URL (IAM auth)
     Value: !GetAtt GeoFunctionUrl.FunctionUrl
   OacId:
-    Condition: UseOac
     Description: Origin Access Control ID
     Value: !Ref GeoLambdaOac

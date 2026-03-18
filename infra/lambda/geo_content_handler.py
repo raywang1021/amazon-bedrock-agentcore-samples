@@ -78,12 +78,14 @@ def _ttl_value():
 
 
 def _get_original_url(event, path):
-    # Use DEFAULT_ORIGIN_HOST (origin site domain) to fetch original content.
-    # Don't use ALB host header — it would route back to Lambda.
-    # Preserve querystring but strip control params.
-    host = DEFAULT_ORIGIN_HOST
+    # Multi-tenancy: use x-original-host (the CloudFront domain the bot hit)
+    # to fetch original content. CloudFront's default behavior proxies to the
+    # correct origin site. Fall back to DEFAULT_ORIGIN_HOST if header missing.
+    # IMPORTANT: don't include ua= param — it would trigger CFF bot routing
+    # and cause an infinite loop back to this Lambda.
+    headers = event.get("headers") or {}
+    host = headers.get("x-original-host") or DEFAULT_ORIGIN_HOST
     if not host:
-        headers = event.get("headers") or {}
         host = headers.get("x-forwarded-host") or headers.get("host") or ""
     base = f"https://{host}{path}" if host else path
 
@@ -218,6 +220,15 @@ def handler(event, context):
 
     # Cache hit — ready
     if item and item.get("status") == "ready":
+        # Validate geo_content is actual HTML, not agent conversation text
+        gc = (item.get("geo_content") or "").strip()
+        if not (gc.startswith("<") or gc.lower().startswith("<!doctype")):
+            print(f"Non-HTML content in cache for {ddb_key}, purging and regenerating")
+            try:
+                table.delete_item(Key={"url_path": ddb_key})
+            except Exception:
+                pass
+            return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=False, handler_start=handler_start, host=original_host)
         handler_ms = int((time.time() - handler_start) * 1000)
         ct = item.get("content_type", "text/html")
         if "charset" not in ct.lower():
@@ -286,6 +297,15 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
         handler_ms = int((time.time() - handler_start) * 1000)
 
         if item and item.get("status") == "ready":
+            # Validate geo_content is actual HTML, not agent conversation text
+            gc = (item.get("geo_content") or "").strip()
+            if not (gc.startswith("<") or gc.lower().startswith("<!doctype")):
+                print(f"Non-HTML content in DDB for {ddb_key}, falling through")
+                try:
+                    table.delete_item(Key={"url_path": ddb_key})
+                except Exception:
+                    pass
+                return _do_passthrough(original_url, path, handler_start)
             try:
                 table.update_item(
                     Key={"url_path": ddb_key},

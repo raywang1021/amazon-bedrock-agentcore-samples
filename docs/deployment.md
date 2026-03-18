@@ -2,8 +2,6 @@
 
 ## 部署者所需 IAM 權限
 
-部署本系統需要以下 IAM 權限，請確認部署者的 IAM user/role 具備：
-
 | 服務 | 權限 | 用途 |
 |------|------|------|
 | CloudFormation | `cloudformation:*` | SAM deploy 建立/更新 stack |
@@ -11,18 +9,10 @@
 | Lambda | `lambda:*` | 建立/更新 Lambda 函數 |
 | DynamoDB | `dynamodb:*` on `geo-content` | 建立 table、CRUD |
 | IAM | `iam:CreateRole`, `iam:AttachRolePolicy`, `iam:PassRole` | Lambda execution role |
-| CloudFront | `cloudfront:CreateDistribution`, `cloudfront:UpdateDistribution` | 建立/更新 distribution |
-| CloudFront | `cloudfront:CreateInvalidation` | 清除 CF 快取（purge 後需搭配使用） |
-| CloudFront | `cloudfront:*Function*` | 建立/更新/發布 CFF |
-| CloudFront | `cloudfront:*OriginAccessControl*` | OAC 模式 |
-| EC2 | `ec2:*` | ALB 模式：VPC、Subnet、SG |
-| ELB | `elasticloadbalancing:*` | ALB 模式 |
+| CloudFront | `cloudfront:*Distribution*`, `cloudfront:CreateInvalidation` | distribution 管理 |
+| CloudFront | `cloudfront:*Function*` | CFF 管理 |
+| CloudFront | `cloudfront:*OriginAccessControl*` | OAC 管理 |
 | Bedrock AgentCore | `bedrock-agentcore:*` | AgentCore deploy/invoke |
-
-最小權限原則：
-- 只用 OAC 模式 → 不需 EC2、ELB 權限
-- 只用 ALB 模式 → 不需 `cloudfront:*OriginAccessControl*`
-- 不需手動清 CF 快取 → 不需 `cloudfront:CreateInvalidation`
 
 ## AgentCore Agent
 
@@ -30,215 +20,158 @@
 agentcore deploy
 ```
 
-部署 GEO agent 到 Bedrock AgentCore（us-east-1）。部署後可用 `agentcore invoke` 呼叫。
-
-Agent ARN 會寫入 `.bedrock_agentcore.yaml`，Lambda 需要這個 ARN 來觸發 agent 產生 GEO 內容。
+部署 GEO agent 到 Bedrock AgentCore（us-east-1）。Agent ARN 寫入 `.bedrock_agentcore.yaml`，Lambda 需要此 ARN 觸發 agent 產生 GEO 內容。
 
 ## Edge Serving Infrastructure
 
-SAM template 支援兩種 origin 模式，透過 `OriginMode` 參數選擇：
+架構：CloudFront OAC + Lambda Function URL（SigV4 認證），零額外成本。
 
-| 模式 | 說明 | 成本 | 安全機制 |
-|------|------|------|---------|
-| `alb`（預設）| ALB + Security Group + VPC | ALB 費用 + VPC | SG (CF prefix list) + `x-origin-verify` header |
-| `oac` | Lambda Function URL + CloudFront OAC | 零額外成本 | SigV4 簽署（IAM auth） |
-
-### 模式 A：ALB（預設）
+### 部署
 
 ```bash
-sam build --template infra/template.yaml
-sam deploy --template infra/template.yaml \
+sam build -t infra/template.yaml
+sam deploy -t infra/template.yaml
+```
+
+`samconfig.toml` 已包含預設參數。首次部署或需自訂參數時：
+
+```bash
+sam deploy -t infra/template.yaml \
   --stack-name geo-backend \
   --region us-east-1 \
   --resolve-s3 \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
-    OriginMode=alb \
-    AgentRuntimeArn=<AGENT_ARN> \
-    DefaultOriginHost=<CF_DOMAIN>
-```
-
-`DefaultOriginHost` 填原始站台的 domain（例如 `www.setn.com`），不是 CloudFront domain。
-
-建立的資源：
-- VPC + 2 public subnets（如果沒提供 VpcId）
-- ALB + Security Group（只允許 CloudFront managed prefix list）
-- `geo-content-handler` Lambda（ALB target）
-- `geo-content-generator` Lambda（非同步 AgentCore invoke）
-- DynamoDB table `geo-content`
-
-使用現有 VPC：
-```bash
-sam deploy ... \
-  --parameter-overrides \
-    OriginMode=alb \
-    VpcId=vpc-xxxxxxxx \
-    SubnetIds=subnet-aaa,subnet-bbb \
-    ...
-```
-
-CloudFront origin 設定：
-1. Origin domain: `<AlbDnsName>`（SAM output）
-2. Origin ID: `geo-alb-origin`
-3. Protocol: HTTP only, Port: 80
-4. Custom header: `x-origin-verify` = `geo-agent-cf-origin-2026`
-
-### 模式 B：OAC（推薦）
-
-```bash
-sam build --template infra/template.yaml
-sam deploy --template infra/template.yaml \
-  --stack-name geo-backend \
-  --region us-east-1 \
-  --resolve-s3 \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides \
-    OriginMode=oac \
     AgentRuntimeArn=<AGENT_ARN> \
     DefaultOriginHost=www.setn.com \
-    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID>
+    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID> \
+    SetupCfOrigin=true \
+    CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
-
-`DefaultOriginHost` 填原始站台的 domain（例如 `www.setn.com`、`today.line.me`），不是 CloudFront domain。Lambda 用它來 fetch 原始內容。
-
 建立的資源：
 - Lambda Function URL（`AuthType: AWS_IAM`）
 - CloudFront OAC（SigV4 簽署）
-- CloudFront → Lambda invoke permission
-- `geo-content-handler` Lambda
-- `geo-content-generator` Lambda
+- CloudFront → Lambda invoke permission（帳號內所有 distribution）
+- `geo-content-handler` Lambda — 服務 GEO 內容
+- `geo-content-generator` Lambda — 非同步呼叫 AgentCore
+- `geo-content-storage` Lambda — Agent 寫入 DDB
 - DynamoDB table `geo-content`（可透過 `CreateTable=false` 跳過）
 
-不建立 VPC、ALB、Security Group。
+### SAM 參數
 
-CloudFront origin 設定：
-1. Origin domain: `<FunctionUrl>` 的 domain 部分（SAM output，去掉 `https://`）
-2. Origin ID: `geo-lambda-origin`
-3. OAC: 選擇 `geo-lambda-oac`（SAM output `OacId`）
-4. Custom header: `x-origin-verify` = `geo-agent-cf-origin-2026`（defense-in-depth）
+| 參數 | 預設值 | 說明 |
+|------|--------|------|
+| `TableName` | `geo-content` | DynamoDB table 名稱 |
+| `AgentRuntimeArn` | （空） | AgentCore Runtime ARN |
+| `DefaultOriginHost` | （空） | 原始站台 domain（如 `www.setn.com`） |
+| `OriginVerifySecret` | `geo-agent-cf-origin-2026` | Defense-in-depth 驗證 header |
+| `CloudFrontDistributionArn` | （空） | CF distribution ARN |
+| `CreateTable` | `true` | 是否建立 DDB table（多租戶共用時設 `false`） |
+| `SetupCfOrigin` | `false` | 自動設定既有 CF distribution 的 origin |
+| `CffArn` | （空） | 要關聯的 CFF ARN |
+| `CffBehaviorPath` | `*` | CFF 關聯的 cache behavior path |
+
+### SAM S3 Hash Collision
+
+SAM 偶爾會因 S3 hash 未變而跳過 Lambda 更新。此時直接更新：
+
+```bash
+# 打包 infra/lambda/ 所有檔案（三個 Lambda 共用同一 package）
+cd infra/lambda && zip -r /tmp/lambda.zip . && cd ../..
+
+# 逐一更新
+aws lambda update-function-code --function-name geo-content-handler --zip-file fileb:///tmp/lambda.zip
+aws lambda update-function-code --function-name geo-content-generator --zip-file fileb:///tmp/lambda.zip
+aws lambda update-function-code --function-name geo-content-storage --zip-file fileb:///tmp/lambda.zip
+```
 
 ### CloudFront Function
 
-兩個 CFF 分別對應兩種 origin 模式：
+CFF `geo-bot-router-oac`（`infra/cloudfront-function/geo-router-oac.js`）負責：
+1. 偵測 AI bot User-Agent（GPTBot、ClaudeBot 等）
+2. 設定 `x-original-host` header（多租戶路由用）
+3. 切換 origin 到 `geo-lambda-origin`（Lambda Function URL）
 
-| CFF | 檔案 | Origin ID |
-|-----|------|-----------|
-| `geo-bot-router` | `infra/cloudfront-function/geo-router.js` | `geo-alb-origin` |
-| `geo-bot-router-oac` | `infra/cloudfront-function/geo-router-oac.js` | `geo-lambda-origin` |
-
-部署時根據 origin 模式選擇對應的 CFF 關聯到 CloudFront distribution。
-
-更新 CFF（以 ALB 模式為例）：
+更新 CFF：
 ```bash
 # 取得 ETag
-aws cloudfront describe-function --name geo-bot-router --query 'ETag' --output text
+aws cloudfront describe-function --name geo-bot-router-oac --query 'ETag' --output text
 
 # 更新
 aws cloudfront update-function \
-  --name geo-bot-router \
+  --name geo-bot-router-oac \
   --if-match <ETAG> \
-  --function-config Comment="GEO bot router",Runtime=cloudfront-js-2.0 \
-  --function-code fileb://infra/cloudfront-function/geo-router.js
+  --function-config Comment="GEO bot router (OAC)",Runtime=cloudfront-js-2.0 \
+  --function-code fileb://infra/cloudfront-function/geo-router-oac.js
 
 # 發布
 aws cloudfront publish-function \
-  --name geo-bot-router \
+  --name geo-bot-router-oac \
   --if-match <NEW_ETAG>
 ```
 
-OAC 模式同理，將 `geo-bot-router` 替換為 `geo-bot-router-oac`，檔案替換為 `geo-router-oac.js`。
-
-### 模式切換
-
-從 ALB 切換到 OAC（或反向）：
-```bash
-sam deploy ... --parameter-overrides OriginMode=oac ...
-```
-
-CloudFormation 會自動刪除舊模式的資源、建立新模式的資源。切換後需更新 CloudFront distribution 的 origin 設定。
-
 ### 多站台部署（共用 DynamoDB）
 
-DDB key 格式為 `{host}#{path}[?query]`，天生支援多租戶。多個站台可共用同一張 DDB table，各自部署獨立的 CloudFront distribution + Lambda stack。
+DDB key 格式為 `{host}#{path}[?query]`，天生支援多租戶。多個站台共用同一張 DDB table。
 
 #### 情境 1：全新 CloudFront Distribution
 
-適合新站台，一鍵建立 distribution + CFF + origin：
-
 ```bash
 # Step 1: 部署 Lambda backend
-sam deploy --stack-name geo-backend-setn \
-  --template infra/template.yaml \
+sam deploy --stack-name geo-backend-site \
+  -t infra/template.yaml \
   --parameter-overrides \
     TableName=geo-content \
-    OriginMode=oac \
-    DefaultOriginHost=www.setn.com
+    DefaultOriginHost=www.example.com
 
-# Step 2: 用 Step 1 的 output 建立 CloudFront distribution
-sam deploy --stack-name geo-cf-setn \
-  --template infra/cloudfront-distribution.yaml \
+# Step 2: 建立 CloudFront distribution
+sam deploy --stack-name geo-cf-site \
+  -t infra/cloudfront-distribution.yaml \
   --parameter-overrides \
-    OriginDomain=www.setn.com \
+    OriginDomain=www.example.com \
     GeoFunctionUrlDomain=<FunctionUrl domain from Step 1> \
     GeoOacId=<OacId from Step 1>
-
-# Step 3: 用 Step 2 的 output 更新 backend（設定 CF invalidation 權限）
-sam deploy --stack-name geo-backend-setn \
-  --template infra/template.yaml \
-  --parameter-overrides \
-    TableName=geo-content \
-    OriginMode=oac \
-    DefaultOriginHost=www.setn.com \
-    CloudFrontDistributionArn=<DistributionArn from Step 2>
 ```
 
 #### 情境 2：既有 CloudFront Distribution
 
-適合已有 distribution 的站台，自動加 origin + 掛 CFF：
-
 ```bash
-sam deploy --stack-name geo-backend-setn \
-  --template infra/template.yaml \
-  --parameter-overrides \
-    TableName=geo-content \
-    OriginMode=oac \
-    DefaultOriginHost=www.setn.com \
-    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID> \
-    SetupCfOrigin=true \
-    CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac \
-    CffBehaviorPath="*"
-```
-
-`SetupCfOrigin=true` 會自動：
-- 在既有 distribution 加上 `geo-lambda-origin` origin（指向 Lambda Function URL + OAC）
-- 將指定的 CFF 掛到 `CffBehaviorPath` 對應的 cache behavior
-- Stack 刪除時自動移除 origin 和 CFF 關聯
-
-#### 第二組站台（共用 DDB table）
-
-```bash
-sam deploy --stack-name geo-backend-linetoday \
+sam deploy --stack-name geo-backend-site \
+  -t infra/template.yaml \
   --parameter-overrides \
     TableName=geo-content \
     CreateTable=false \
-    OriginMode=oac \
+    DefaultOriginHost=www.example.com \
+    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID> \
+    SetupCfOrigin=true \
+    CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
+```
+
+`SetupCfOrigin=true` 會自動在既有 distribution 加上 `geo-lambda-origin` origin + OAC + CFF。
+
+#### 新增站台（共用 DDB table）
+
+第二組以上的站台設 `CreateTable=false`：
+
+```bash
+sam deploy --stack-name geo-backend-linetoday \
+  -t infra/template.yaml \
+  --parameter-overrides \
+    TableName=geo-content \
+    CreateTable=false \
     DefaultOriginHost=today.line.me \
     CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID_B> \
     SetupCfOrigin=true \
     CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
 
-注意：共用 table 時，各 stack 的 Lambda IAM policy 是 table-level，理論上可讀寫其他 host 的資料。Demo 環境可接受，正式環境可考慮用 IAM condition `dynamodb:LeadingKeys` 限制存取範圍。
-
 ## llms.txt 存入
-
-用 Agent 產出 llms.txt 草稿，經 owner 審核後存入 DDB：
 
 ```bash
 # 1. 產出草稿
 agentcore invoke '{"prompt": "幫 news.tvbs.com.tw 產生 llms.txt"}'
 
-# 2. 審核/編輯內容後，透過 Storage Lambda 存入 DDB
+# 2. 審核後存入 DDB
 aws lambda invoke --function-name geo-content-storage \
   --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
@@ -257,29 +190,18 @@ curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"
 
 ### CloudFront 快取清除
 
-DDB purge（`?purge=true`）只清 DDB 記錄，不清 CF 快取。若需立即生效，需搭配 CF invalidation：
+DDB purge（`?purge=true`）只清 DDB 記錄，不清 CF 快取。若需立即生效：
 
 ```bash
-# 清除特定路徑
 aws cloudfront create-invalidation \
   --distribution-id <DIST_ID> \
   --paths "/world/3149600"
-
-# 清除全部
-aws cloudfront create-invalidation \
-  --distribution-id <DIST_ID> \
-  --paths "/*"
 ```
 
-注意：每月前 1,000 個 invalidation path 免費，超過後每個 path $0.005。
+每月前 1,000 個 invalidation path 免費。
 
 ### 測試指令
 
-```bash
-bash test/e2e_test.sh [CF_DOMAIN] [ALB_DNS]
-```
-
-手動測試：
 ```bash
 # 模擬 AI bot
 curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot"
@@ -290,17 +212,10 @@ curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot&mode=async"
 # sync 模式（~30-40s）
 curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot&mode=sync"
 
-# 驗證 Function URL 直接存取被擋（OAC 模式）
+# 驗證 Function URL 直接存取被擋
 curl "https://<FUNCTION_URL>/world/3149599"  # 應回 403
 
-# 驗證 ALB 直接存取被擋（ALB 模式）
-curl "http://<ALB_DNS>/world/3149599"  # 應 timeout
-
-# llms.txt（bot 拿到 Markdown，一般使用者走原站）
-curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"  # 應回 text/markdown
-curl "https://<CF_DOMAIN>/llms.txt"               # 應回原站 404
-
-# OAC 模式測試（使用 OAC distribution domain）
-curl "https://<OAC_CF_DOMAIN>/world/3149600?ua=genaibot"  # 應回 GEO 內容
-curl "https://<OAC_CF_DOMAIN>/world/3149600"              # 應回原站內容
+# llms.txt
+curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"  # text/markdown
+curl "https://<CF_DOMAIN>/llms.txt"               # 原站內容
 ```
