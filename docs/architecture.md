@@ -2,7 +2,7 @@
 
 ## 系統總覽
 
-本系統使用 CloudFront OAC + Lambda Function URL 架構，零額外成本（無 ALB/VPC）。
+本系統使用 CloudFront OAC + Lambda Function URL 架構，零額外成本。
 多個 CloudFront distribution 共用同一組 Lambda + DynamoDB，透過 `{host}#{path}` composite key 實現多租戶。
 
 ```
@@ -35,11 +35,14 @@ AI Bot    一般使用者
 └─────┬──────┘
       │
       ▼
-┌──────────────┐
-│ DynamoDB     │
-│ geo-content  │
-│ {host}#path  │
-└──────────────┘
+┌──────────────┐     ┌─────────────────────────┐
+│ DynamoDB     │     │ Bedrock AgentCore       │
+│ geo-content  │ ◄── │ (GEO Agent)             │
+│ {host}#path  │     │   │                     │
+└──────────────┘     │   ▼                     │
+                     │ Bedrock LLM             │
+                     │ + Guardrail（可選）      │
+                     └─────────────────────────┘
 ```
 
 ## Agent ↔ DynamoDB 解耦架構
@@ -136,15 +139,15 @@ store_geo_content(url)
     │
     ├── fetch_page_text(url)
     ├── sanitize_web_content(raw_text)
-    ├── Rewriter Agent → GEO HTML
+    ├── Rewriter Agent → Bedrock LLM (+Guardrail) → GEO HTML
     │   ├── Strip markdown code blocks
     │   ├── Strip 對話前綴（找第一個 HTML tag）
     │   └── 驗證以 < 開頭
     ├── Storage Lambda → DDB（立即存入，不等評分）
     │
     └── ThreadPoolExecutor（並行評分）
-        ├── _evaluate_content_score(original, "original")
-        └── _evaluate_content_score(geo, "geo-optimized")
+        ├── _evaluate_content_score(original, "original") → Bedrock LLM (+Guardrail)
+        └── _evaluate_content_score(geo, "geo-optimized") → Bedrock LLM (+Guardrail)
             └── Storage Lambda → DDB（async 更新分數）
 ```
 
