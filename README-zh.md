@@ -1,6 +1,6 @@
 # GEO Agent
 
-> 🇺🇸 [English README](README.md)
+> [English README](README.md)
 
 Generative Engine Optimization (GEO) agent，透過 Bedrock AgentCore 部署，搭配 CloudFront OAC + Lambda Function URL 做 edge serving，讓 AI 搜尋引擎爬蟲拿到 GEO 優化過的內容。
 
