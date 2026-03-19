@@ -1,17 +1,19 @@
-# 架構說明
+# Architecture
 
-## 系統總覽
+> 🇹🇼 [中文版](architecture-zh.md)
 
-本系統使用 CloudFront OAC + Lambda Function URL 架構，零額外成本。
-多個 CloudFront distribution 共用同一組 Lambda + DynamoDB，透過 `{host}#{path}` composite key 實現多租戶。
+## System Overview
+
+The system uses a CloudFront OAC + Lambda Function URL architecture.
+Multiple CloudFront distributions share a single set of Lambda + DynamoDB, achieving multi-tenancy via `{host}#{path}` composite keys.
 
 ```
 AI Bot (GPTBot, ClaudeBot...)
      │
-     │ 訪問網站
+     │ visits website
      ▼
 ┌──────────────────┐
-│ CloudFront       │  ← 多個 distribution 共用同一 Lambda origin
+│ CloudFront       │  ← multiple distributions share the same Lambda origin
 │ (CDN)            │
 └────────┬─────────┘
          │
@@ -19,19 +21,19 @@ AI Bot (GPTBot, ClaudeBot...)
 │ CFF              │
 │ geo-bot-router   │
 │ -oac             │
-│ 偵測 User-Agent  │
-│ 設定 x-original- │
+│ detect User-Agent│
+│ set x-original-  │
 │ host header      │
 └───┬─────────┬────┘
     │         │
-AI Bot    一般使用者
+AI Bot    Normal User
     │         ▼
-    ▼    原站 Origin (不變)
+    ▼    Original Origin (unchanged)
 ┌────────────┐
 │ Lambda     │
 │ Function   │
 │ URL (OAC)  │
-│ SigV4 認證 │
+│ SigV4 auth │
 └─────┬──────┘
       │
       ▼
@@ -41,13 +43,13 @@ AI Bot    一般使用者
 │ {host}#path  │     │   │                     │
 └──────────────┘     │   ▼                     │
                      │ Bedrock LLM             │
-                     │ + Guardrail（可選）      │
+                     │ + Guardrail (optional)   │
                      └─────────────────────────┘
 ```
 
-## Agent ↔ DynamoDB 解耦架構
+## Agent ↔ DynamoDB Decoupled Architecture
 
-Agent 不直接存取 DynamoDB。`store_geo_content` tool 透過 `lambda:InvokeFunction` 呼叫 `geo-content-storage` Lambda，由該 Lambda 負責 DDB 寫入。
+The Agent does not access DynamoDB directly. The `store_geo_content` tool invokes the `geo-content-storage` Lambda via `lambda:InvokeFunction`, which handles DDB writes.
 
 ```
 Agent (store_geo_content)
@@ -58,7 +60,7 @@ Agent (store_geo_content)
 │ geo-content-     │
 │ storage Lambda   │
 │ (DDB CRUD)       │
-│ + HTML 驗證      │
+│ + HTML validation│
 └────────┬─────────┘
          │ put_item
          ▼
@@ -68,74 +70,74 @@ Agent (store_geo_content)
 └──────────────────┘
 ```
 
-好處：
-- Agent 只需 `lambda:InvokeFunction`，不需 DDB 權限
-- DDB schema 變更不影響 Agent 程式碼
-- Storage Lambda 可獨立擴展、加 validation、加 logging
+Benefits:
+- Agent only needs `lambda:InvokeFunction` permission, no DDB permissions required
+- DDB schema changes don't affect Agent code
+- Storage Lambda can be independently scaled, with added validation and logging
 
-## Bedrock Guardrail（可選）
+## Bedrock Guardrail (Optional)
 
-系統支援 Bedrock Guardrail，透過環境變數啟用：
+The system supports Bedrock Guardrail, enabled via environment variables:
 
-| 環境變數 | 預設值 | 說明 |
-|---------|--------|------|
-| `BEDROCK_GUARDRAIL_ID` | （空，不啟用） | Guardrail ID |
-| `BEDROCK_GUARDRAIL_VERSION` | `DRAFT` | Guardrail 版本 |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BEDROCK_GUARDRAIL_ID` | (empty, disabled) | Guardrail ID |
+| `BEDROCK_GUARDRAIL_VERSION` | `DRAFT` | Guardrail version |
 
-設定 `BEDROCK_GUARDRAIL_ID` 後，所有透過 `load_model()` 建立的 BedrockModel 都會自動套用 guardrail。
-這包含主 agent、rewrite sub-agent、score evaluation sub-agent。
+When `BEDROCK_GUARDRAIL_ID` is set, all BedrockModel instances created via `load_model()` automatically apply the guardrail.
+This includes the main agent, rewrite sub-agent, and score evaluation sub-agent.
 
-Guardrail 可用於：
-- 過濾不當內容（仇恨言論、暴力、色情等）
-- 限制 PII 洩漏
-- 自訂 denied topics（例如禁止產生特定類型內容）
-- 防止 prompt injection 攻擊（搭配 `sanitize.py` 雙重防護）
+Guardrail capabilities:
+- Filter inappropriate content (hate speech, violence, explicit content, etc.)
+- Restrict PII leakage
+- Custom denied topics (e.g., block generation of specific content types)
+- Prevent prompt injection attacks (dual protection with `sanitize.py`)
 
-## HTML 內容驗證（三層防護）
+## HTML Content Validation (Three-Layer Protection)
 
-為防止 agent 對話文字（如 "Here's your GEO content..."）被誤存為 `geo_content`，系統在三個層級做 HTML 驗證：
+To prevent agent conversation text (e.g., "Here's your GEO content...") from being stored as `geo_content`, the system validates HTML at three layers:
 
-| 層級 | 位置 | 驗證邏輯 |
-|------|------|---------|
-| 1 | `store_geo_content.py`（Agent tool） | Strip 對話前綴，找到第一個 HTML tag 才開始；完全沒 HTML 則不存 |
-| 2 | `geo_generator.py`（Generator Lambda） | 從 agent response 提取 HTML 時，regex 匹配 `<article>`、`<section>` 等常見標籤 |
-| 3 | `geo_storage.py`（Storage Lambda） | 最後防線：`geo_content` 不以 `<` 開頭直接 reject 400 |
+| Layer | Location | Validation Logic |
+|-------|----------|-----------------|
+| 1 | `store_geo_content.py` (Agent tool) | Strips conversation prefixes, finds first HTML tag; skips storage if no HTML found |
+| 2 | `geo_generator.py` (Generator Lambda) | Extracts HTML from agent response via regex matching `<article>`, `<section>`, etc. |
+| 3 | `geo_storage.py` (Storage Lambda) | Last line of defense: rejects 400 if `geo_content` doesn't start with `<` |
 
-Handler 讀取 cache 時也會驗證：非 HTML 內容會被 purge 並觸發重新生成。
+The handler also validates when reading from cache: non-HTML content is purged and triggers regeneration.
 
-## 多租戶架構
+## Multi-Tenant Architecture
 
-多個 CloudFront distribution 共用同一組 Lambda（`geo-content-handler`、`geo-content-generator`、`geo-content-storage`）和同一張 DynamoDB table。
+Multiple CloudFront distributions share the same set of Lambdas (`geo-content-handler`, `geo-content-generator`, `geo-content-storage`) and a single DynamoDB table.
 
-### 路由流程
+### Routing Flow
 
-1. Bot 訪問 `dq324v08a4yas.cloudfront.net/cars/3141215`
-2. CFF 偵測 bot → 設定 `x-original-host: dq324v08a4yas.cloudfront.net` → 路由到 `geo-lambda-origin`
-3. Handler 用 `x-original-host` 建立 DDB key：`dq324v08a4yas.cloudfront.net#/cars/3141215`
-4. Cache miss → Handler 用 `x-original-host` 作為 fetch URL 的 host（CloudFront default behavior 會 proxy 到正確的 origin site）
-5. 觸發 async generator → AgentCore → 存入 DDB
+1. Bot visits `dq324v08a4yas.cloudfront.net/cars/3141215`
+2. CFF detects bot → sets `x-original-host: dq324v08a4yas.cloudfront.net` → routes to `geo-lambda-origin`
+3. Handler builds DDB key using `x-original-host`: `dq324v08a4yas.cloudfront.net#/cars/3141215`
+4. Cache miss → Handler uses `x-original-host` as the fetch URL host (CloudFront default behavior proxies to the correct origin site)
+5. Triggers async generator → AgentCore → stores in DDB
 
-### DDB Key 格式
+### DDB Key Format
 
 `{host}#{path}[?query]`
 
-例如：
+Examples:
 - `dq324v08a4yas.cloudfront.net#/cars/3141215`
 - `dlmwhof468s34.cloudfront.net#/News.aspx?NewsID=1808081`
 
-### 新增站台
+### Adding a New Site
 
-1. 建立 CloudFront distribution，default origin 指向原站
-2. 加 `geo-lambda-origin` origin，指向 `geo-content-handler` 的 Function URL + OAC
-3. 關聯 `geo-bot-router-oac` CFF
-4. 在 `geo-content-handler` Lambda 加上該 distribution 的 `InvokeFunctionUrl` permission
+1. Create a CloudFront distribution with default origin pointing to the origin site
+2. Add `geo-lambda-origin` origin pointing to `geo-content-handler`'s Function URL + OAC
+3. Associate the `geo-bot-router-oac` CFF
+4. Add `InvokeFunctionUrl` permission for that distribution on the `geo-content-handler` Lambda
 
 ## Sequence Diagrams
 
-### Agent Tool 呼叫流程（evaluate_geo_score 為例）
+### Agent Tool Invocation Flow (evaluate_geo_score example)
 
-一次完整呼叫經過兩次 Bedrock API call（Main agent 意圖判斷 + Sub-agent 執行）。
-若啟用 Guardrail，每次 LLM 呼叫都會經過 Guardrail 過濾。
+A single complete invocation goes through two Bedrock API calls (Main agent intent detection + Sub-agent execution).
+When Guardrail is enabled, every LLM call passes through Guardrail filtering.
 
 ```mermaid
 sequenceDiagram
@@ -147,7 +149,7 @@ sequenceDiagram
     participant Sanitize as sanitize
     participant Claude2 as Claude (Sub-agent) + Guardrail
 
-    User->>AgentCore: "評估 GEO 分數: https://..."
+    User->>AgentCore: "Evaluate GEO score: https://..."
     AgentCore->>MainAgent: payload + prompt
     MainAgent->>Claude1: prompt + tools list
     Claude1-->>MainAgent: tool_use: evaluate_geo_score(url)
@@ -164,7 +166,7 @@ sequenceDiagram
     AgentCore-->>User: streaming text
 ```
 
-### Edge Serving — Passthrough 模式（預設）
+### Edge Serving — Passthrough Mode (Default)
 
 ```mermaid
 sequenceDiagram
@@ -178,29 +180,29 @@ sequenceDiagram
 
     Bot->>CF: GET /world/3149600
     CF->>CFF: viewer-request
-    CFF->>CFF: 偵測 AI bot User-Agent
-    CFF->>CFF: 設定 x-original-host header
-    CFF->>Lambda: 切換 origin (OAC SigV4)
+    CFF->>CFF: Detect AI bot User-Agent
+    CFF->>CFF: Set x-original-host header
+    CFF->>Lambda: Switch origin (OAC SigV4)
     Lambda->>DDB: get_item({host}#path)
 
     alt status=ready (cache hit)
-        DDB-->>Lambda: GEO 內容
-        Lambda->>Lambda: HTML 驗證
+        DDB-->>Lambda: GEO content
+        Lambda->>Lambda: HTML validation
         Lambda-->>Bot: 200 + GEO HTML
-    else 無資料 (cache miss)
+    else No record (cache miss)
         DDB-->>Lambda: (empty)
         Lambda->>DDB: put_item(status=processing)
         Lambda->>Gen: invoke(async)
-        Lambda->>Lambda: fetch 原始網頁
-        Lambda-->>Bot: 200 + 原始 HTML (passthrough)
+        Lambda->>Lambda: Fetch original page
+        Lambda-->>Bot: 200 + Original HTML (passthrough)
         Gen->>AC: invoke_agent_runtime
-        AC-->>Gen: GEO 內容
-        Gen->>Gen: HTML 驗證
+        AC-->>Gen: GEO content
+        Gen->>Gen: HTML validation
         Gen->>DDB: put_item(status=ready)
     end
 ```
 
-### Edge Serving — Sync 模式
+### Edge Serving — Sync Mode
 
 ```mermaid
 sequenceDiagram
@@ -212,17 +214,17 @@ sequenceDiagram
     Bot->>Lambda: GET /path?mode=sync
     Lambda->>DDB: get_item → cache miss
     Lambda->>DDB: put_item(status=processing)
-    Lambda->>AC: invoke_agent_runtime（等待 ~30-40s）
-    AC-->>Lambda: 完成
+    Lambda->>AC: invoke_agent_runtime (wait ~30-40s)
+    AC-->>Lambda: complete
     Lambda->>DDB: get_item → status=ready
-    Lambda->>Lambda: HTML 驗證
+    Lambda->>Lambda: HTML validation
     Lambda->>DDB: update(handler_duration_ms, generation_duration_ms)
     Lambda-->>Bot: 200 + GEO HTML
 ```
 
-## Agent Tool 呼叫流程
+## Agent Tool Invocation Flow
 
-### store_geo_content — 抓取 + 改寫 + 存儲
+### store_geo_content — Fetch + Rewrite + Store
 
 ```
 store_geo_content(url)
@@ -231,28 +233,28 @@ store_geo_content(url)
     ├── sanitize_web_content(raw_text)
     ├── Rewriter Agent → Bedrock LLM (+Guardrail) → GEO HTML
     │   ├── Strip markdown code blocks
-    │   ├── Strip 對話前綴（找第一個 HTML tag）
-    │   └── 驗證以 < 開頭
-    ├── Storage Lambda → DDB（立即存入，不等評分）
+    │   ├── Strip conversation prefixes (find first HTML tag)
+    │   └── Validate starts with <
+    ├── Storage Lambda → DDB (store immediately, don't wait for scoring)
     │
-    └── ThreadPoolExecutor（並行評分）
+    └── ThreadPoolExecutor (parallel scoring)
         ├── _evaluate_content_score(original, "original") → Bedrock LLM (+Guardrail)
         └── _evaluate_content_score(geo, "geo-optimized") → Bedrock LLM (+Guardrail)
-            └── Storage Lambda → DDB（async 更新分數）
+            └── Storage Lambda → DDB (async score update)
 ```
 
-### evaluate_geo_score — 三視角評分
+### evaluate_geo_score — Three-Perspective Scoring
 
-| 視角 | URL | User-Agent | 說明 |
-|------|-----|-----------|------|
-| as-is | 原始輸入 URL | 預設 UA | 無論輸入什麼就抓什麼 |
-| original | 去掉 `?ua=genaibot` | 預設 UA | 原始頁面（非 GEO 版本） |
-| geo | 去掉 `?ua=genaibot` | GPTBot/1.0 | GEO 優化版本 |
+| Perspective | URL | User-Agent | Description |
+|-------------|-----|-----------|-------------|
+| as-is | Original input URL | Default UA | Fetches whatever the input URL returns |
+| original | Stripped `?ua=genaibot` | Default UA | Original page (non-GEO version) |
+| geo | Stripped `?ua=genaibot` | GPTBot/1.0 | GEO-optimized version |
 
-## Edge Serving 流程（Passthrough 模式，預設）
+## Edge Serving Flow (Passthrough Mode, Default)
 
 ```
-Bot → CloudFront → CFF（偵測 bot）→ Lambda Function URL (OAC SigV4)
+Bot → CloudFront → CFF (detect bot) → Lambda Function URL (OAC SigV4)
                                           │
                                     ┌─────▼─────┐
                                     │ DDB lookup │
@@ -262,7 +264,7 @@ Bot → CloudFront → CFF（偵測 bot）→ Lambda Function URL (OAC SigV4)
                               │           │           │
                          status=ready  processing  no record
                               │           │           │
-                         HTML 驗證     stale?      mark processing
+                         HTML valid    stale?      mark processing
                               │        ├─ yes →    trigger async
                          ┌────┴────┐   │  reset    fetch original
                          │ pass  │ │   └─ no →     return original
@@ -271,58 +273,58 @@ Bot → CloudFront → CFF（偵測 bot）→ Lambda Function URL (OAC SigV4)
                     HTML        regenerate
 ```
 
-## Cache Miss 模式
+## Cache Miss Modes
 
-| 模式 | querystring | 行為 | 適用場景 |
-|------|------------|------|---------|
-| passthrough（預設）| 無 或 `?mode=passthrough` | 回原始內容 + 非同步產生 | 正式環境 |
-| async | `?mode=async` | 回 202 + 非同步產生 | 測試用 |
-| sync | `?mode=sync` | 等 AgentCore 產生完才回 | 測試用 |
+| Mode | Querystring | Behavior | Use Case |
+|------|------------|----------|----------|
+| passthrough (default) | none or `?mode=passthrough` | Return original content + async generation | Production |
+| async | `?mode=async` | Return 202 + async generation | Testing |
+| sync | `?mode=sync` | Wait for AgentCore generation to complete | Testing |
 
 ## DynamoDB Schema
 
-Table: `geo-content`，partition key: `url_path` (S)
+Table: `geo-content`, partition key: `url_path` (S)
 
-| 欄位 | 類型 | 說明 |
-|------|------|------|
-| `url_path` | S | `{host}#{path}[?query]`（partition key） |
+| Field | Type | Description |
+|-------|------|-------------|
+| `url_path` | S | `{host}#{path}[?query]` (partition key) |
 | `status` | S | `processing` / `ready` |
-| `geo_content` | S | GEO 優化後的 HTML |
+| `geo_content` | S | GEO-optimized HTML |
 | `content_type` | S | `text/html; charset=utf-8` |
-| `original_url` | S | 原始完整 URL |
+| `original_url` | S | Original full URL |
 | `mode` | S | `passthrough` / `async` / `sync` |
-| `host` | S | 來源 host |
+| `host` | S | Source host |
 | `created_at` | S | ISO 8601 UTC |
-| `updated_at` | S | 最後更新時間 |
-| `generation_duration_ms` | N | AgentCore 產生時間（ms） |
-| `generator_duration_ms` | N | Generator Lambda 整體時間（ms） |
-| `original_score` | M | 改寫前 GEO 分數 |
-| `geo_score` | M | 改寫後 GEO 分數 |
-| `score_improvement` | N | 分數改善（geo - original） |
-| `ttl` | N | DynamoDB TTL（Unix timestamp） |
+| `updated_at` | S | Last updated time |
+| `generation_duration_ms` | N | AgentCore generation time (ms) |
+| `generator_duration_ms` | N | Generator Lambda total time (ms) |
+| `original_score` | M | Pre-rewrite GEO score |
+| `geo_score` | M | Post-rewrite GEO score |
+| `score_improvement` | N | Score improvement (geo - original) |
+| `ttl` | N | DynamoDB TTL (Unix timestamp) |
 
 ## Response Headers
 
-| Header | 說明 |
-|--------|------|
-| `X-GEO-Optimized: true` | GEO 優化內容 |
+| Header | Description |
+|--------|-------------|
+| `X-GEO-Optimized: true` | GEO-optimized content |
 | `X-GEO-Source` | `cache` / `generated` / `passthrough` |
-| `X-GEO-Handler-Ms` | Handler 處理時間（ms） |
-| `X-GEO-Duration-Ms` | AgentCore 產生時間（ms） |
-| `X-GEO-Created` | 內容建立時間 |
+| `X-GEO-Handler-Ms` | Handler processing time (ms) |
+| `X-GEO-Duration-Ms` | AgentCore generation time (ms) |
+| `X-GEO-Created` | Content creation time |
 
-## Origin 保護
+## Origin Protection
 
-CloudFront OAC + Lambda Function URL（`AuthType: AWS_IAM`）：
-1. CloudFront 使用 SigV4 簽署每個 origin request
-2. Lambda Function URL 只接受 IAM 認證的請求
-3. Lambda permission 限制指定的 CloudFront distribution 可以 invoke
-4. `x-origin-verify` custom header 作為 defense-in-depth
+CloudFront OAC + Lambda Function URL (`AuthType: AWS_IAM`):
+1. CloudFront signs every origin request with SigV4
+2. Lambda Function URL only accepts IAM-authenticated requests
+3. Lambda permission restricts which CloudFront distributions can invoke
+4. `x-origin-verify` custom header as defense-in-depth
 
-## Lambda 函數一覽
+## Lambda Functions
 
-| Lambda | 用途 | 備註 |
-|--------|------|------|
-| `geo-content-handler` | 讀取 DDB 回傳 GEO 內容 | Function URL + OAC，多租戶 |
-| `geo-content-generator` | 非同步呼叫 AgentCore | 由 handler 觸發 |
-| `geo-content-storage` | Agent 寫入 DDB | 含 HTML 驗證 |
+| Lambda | Purpose | Notes |
+|--------|---------|-------|
+| `geo-content-handler` | Reads DDB and returns GEO content | Function URL + OAC, multi-tenant |
+| `geo-content-generator` | Async invocation of AgentCore | Triggered by handler |
+| `geo-content-storage` | Agent writes to DDB | Includes HTML validation |
