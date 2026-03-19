@@ -1,5 +1,7 @@
 # 架構說明
 
+> [English](architecture.md)
+
 ## 系統總覽
 
 本系統使用 CloudFront OAC + Lambda Function URL 架構，零額外成本。

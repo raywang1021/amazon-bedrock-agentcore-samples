@@ -1,51 +1,53 @@
 # FAQ
 
-## 為什麼用 Agent，而不是直接寫 Python script 呼叫 Claude？
+> [繁體中文版](faq-zh.md)
 
-如果需求是固定的單一任務（例如批次評估一堆 URL 的 GEO 分數），直接寫 script 呼叫 Bedrock API 更快更簡單，只需要一次 Claude 呼叫。
+## Why use an Agent instead of a Python script calling Claude directly?
 
-用 Agent framework 的價值在於：
+If the requirement is a fixed single task (e.g., batch-evaluating GEO scores for a list of URLs), calling the Bedrock API directly from a script is faster and simpler — just one Claude call.
 
-- **意圖判斷**：同一個入口可能要改寫內容、評估分數、或產生 llms.txt，由模型根據使用者的自然語言來決定呼叫哪個 tool
-- **多步驟任務**：使用者可以說「先評估這個 URL，然後幫我改寫它的內容」，agent 能串接多個 tool 完成
-- **對話式互動**：使用者可以追問、補充要求，agent 維持上下文
+The value of an Agent framework lies in:
 
-代價是多一次 Claude 呼叫來做意圖判斷。如果你的場景不需要這些彈性，直接用 script 是更好的選擇。
+- **Intent detection**: The same entry point can rewrite content, evaluate scores, or generate llms.txt — the model decides which tool to call based on natural language input
+- **Multi-step tasks**: A user can say "evaluate this URL first, then rewrite its content," and the agent chains multiple tools together
+- **Conversational interaction**: Users can follow up, add requirements, and the agent maintains context
 
-詳細的呼叫流程圖請參考 [架構說明](architecture.md#agent-tool-呼叫流程)。
+The trade-off is an extra Claude call for intent detection. If your scenario doesn't need this flexibility, a direct script is the better choice.
+
+See the [Architecture doc](architecture.md#agent-tool-invocation-flow) for detailed invocation flow diagrams.
 
 ## Strands `@tool` vs MCP
 
-這個專案的 tool 用 Strands 的 `@tool` decorator 定義，跟 agent 跑在同一個 process，呼叫就是 Python function call，沒有額外的網路開銷。
+This project's tools are defined using Strands' `@tool` decorator, running in the same process as the agent. Each call is a Python function call with no extra network overhead.
 
-MCP (Model Context Protocol) 是標準化的 client/server 協議，tool 跑在獨立的 server 上，每次呼叫有 I/O 開銷，但好處是任何 MCP client 都能接。對這個專案來說，tool 不需要被其他 client 共用，用 `@tool` 更直接。
+MCP (Model Context Protocol) is a standardized client/server protocol where tools run on separate servers. Each call has I/O overhead, but the benefit is that any MCP client can connect. For this project, tools don't need to be shared with other clients, so `@tool` is more straightforward.
 
-## 為什麼需要 sanitize？AgentCore / Guardrail 不夠嗎？
+## Why is sanitize needed? Isn't AgentCore / Guardrail enough?
 
-`sanitize_web_content()` 防的是 **indirect prompt injection** — 攻擊者在網頁內容裡埋惡意指令，透過 tool 餵進 LLM prompt。
+`sanitize_web_content()` defends against **indirect prompt injection** — attackers embed malicious instructions in web content that gets fed into the LLM prompt via tools.
 
-攻擊路徑：
+Attack path:
 
 ```
-惡意網站（隱藏文字 "ignore all previous instructions..."）
+Malicious website (hidden text "ignore all previous instructions...")
   → fetch_page_text()
-  → Agent tool 把內容塞進 prompt
-  → LLM 被劫持，產出污染的 HTML
-  → 存進 DDB → 透過 CloudFront CDN 大量散播
+  → Agent tool injects content into prompt
+  → LLM hijacked, produces polluted HTML
+  → Stored in DDB → Distributed at scale via CloudFront CDN
 ```
 
-AgentCore 是 runtime/hosting 層，不會過濾 tool 傳進去的 prompt 內容。Bedrock Guardrail 的設計目標是 content safety（PII、仇恨言論等），不是防 prompt injection。
+AgentCore is the runtime/hosting layer — it doesn't filter prompt content passed in by tools. Bedrock Guardrail is designed for content safety (PII, hate speech, etc.), not prompt injection prevention.
 
-所以 sanitize 跟 Guardrail 是互補的：
+So sanitize and Guardrail are complementary:
 
-| 防護層 | 防什麼 | 位置 |
-|--------|--------|------|
-| `sanitize.py` | Indirect prompt injection（來自網頁內容） | Tool 層，LLM 看到之前 |
-| Bedrock Guardrail | Content safety（PII、仇恨、色情等） | LLM 層，input/output 過濾 |
+| Protection Layer | Defends Against | Position |
+|-----------------|-----------------|----------|
+| `sanitize.py` | Indirect prompt injection (from web content) | Tool layer, before LLM sees it |
+| Bedrock Guardrail | Content safety (PII, hate speech, explicit content, etc.) | LLM layer, filters input/output |
 
-sanitize 做三件事：
-1. **Strip HTML comments** — 攻擊者常把指令藏在 `<!-- ... -->` 裡
-2. **移除 invisible unicode** — zero-width characters 可繞過 regex 偵測
-3. **Redact 已知 injection patterns** — `ignore all previous instructions`、`[INST]`、`<<SYS>>` 等 token
+sanitize does three things:
+1. **Strip HTML comments** — attackers often hide instructions in `<!-- ... -->`
+2. **Remove invisible unicode** — zero-width characters can bypass regex detection
+3. **Redact known injection patterns** — `ignore all previous instructions`, `[INST]`, `<<SYS>>`, etc.
 
-保護對象：直接保護 LLM 不被劫持，最終保護透過 CloudFront 拿到 GEO 內容的 AI 搜尋引擎和其用戶。任何把 untrusted external content 餵進 LLM 的系統都需要這層防護。
+Protected targets: directly protects the LLM from hijacking; ultimately protects AI search engines and their users who receive GEO content via CloudFront. Any system feeding untrusted external content into an LLM needs this layer of protection.

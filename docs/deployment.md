@@ -1,17 +1,19 @@
-# 部署指南
+# Deployment Guide
 
-## 部署者所需 IAM 權限
+> [繁體中文版](deployment-zh.md)
 
-| 服務 | 權限 | 用途 |
-|------|------|------|
-| CloudFormation | `cloudformation:*` | SAM deploy 建立/更新 stack |
-| S3 | `s3:*` on SAM bucket | SAM 上傳 artifact |
-| Lambda | `lambda:*` | 建立/更新 Lambda 函數 |
-| DynamoDB | `dynamodb:*` on `geo-content` | 建立 table、CRUD |
+## Required IAM Permissions for Deployer
+
+| Service | Permission | Purpose |
+|---------|-----------|---------|
+| CloudFormation | `cloudformation:*` | SAM deploy create/update stack |
+| S3 | `s3:*` on SAM bucket | SAM artifact upload |
+| Lambda | `lambda:*` | Create/update Lambda functions |
+| DynamoDB | `dynamodb:*` on `geo-content` | Create table, CRUD |
 | IAM | `iam:CreateRole`, `iam:AttachRolePolicy`, `iam:PassRole` | Lambda execution role |
-| CloudFront | `cloudfront:*Distribution*`, `cloudfront:CreateInvalidation` | distribution 管理 |
-| CloudFront | `cloudfront:*Function*` | CFF 管理 |
-| CloudFront | `cloudfront:*OriginAccessControl*` | OAC 管理 |
+| CloudFront | `cloudfront:*Distribution*`, `cloudfront:CreateInvalidation` | Distribution management |
+| CloudFront | `cloudfront:*Function*` | CFF management |
+| CloudFront | `cloudfront:*OriginAccessControl*` | OAC management |
 | Bedrock AgentCore | `bedrock-agentcore:*` | AgentCore deploy/invoke |
 
 ## AgentCore Agent
@@ -20,20 +22,20 @@
 agentcore deploy
 ```
 
-部署 GEO agent 到 Bedrock AgentCore（us-east-1）。Agent ARN 寫入 `.bedrock_agentcore.yaml`，Lambda 需要此 ARN 觸發 agent 產生 GEO 內容。
+Deploys the GEO agent to Bedrock AgentCore (us-east-1). The Agent ARN is written to `.bedrock_agentcore.yaml`; Lambdas need this ARN to trigger agent-based GEO content generation.
 
 ## Edge Serving Infrastructure
 
-架構：CloudFront OAC + Lambda Function URL（SigV4 認證），零額外成本。
+Architecture: CloudFront OAC + Lambda Function URL (SigV4 authentication).
 
-### 部署
+### Deploy
 
 ```bash
 sam build -t infra/template.yaml
 sam deploy -t infra/template.yaml
 ```
 
-`samconfig.toml` 已包含預設參數。首次部署或需自訂參數時：
+`samconfig.toml` includes default parameters. For first-time deployment or custom parameters:
 
 ```bash
 sam deploy -t infra/template.yaml \
@@ -48,38 +50,39 @@ sam deploy -t infra/template.yaml \
     SetupCfOrigin=true \
     CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
-建立的資源：
-- Lambda Function URL（`AuthType: AWS_IAM`）
-- CloudFront OAC（SigV4 簽署）
-- CloudFront → Lambda invoke permission（帳號內所有 distribution）
-- `geo-content-handler` Lambda — 服務 GEO 內容
-- `geo-content-generator` Lambda — 非同步呼叫 AgentCore
-- `geo-content-storage` Lambda — Agent 寫入 DDB
-- DynamoDB table `geo-content`（可透過 `CreateTable=false` 跳過）
 
-### SAM 參數
+Resources created:
+- Lambda Function URL (`AuthType: AWS_IAM`)
+- CloudFront OAC (SigV4 signing)
+- CloudFront → Lambda invoke permission (all distributions in account)
+- `geo-content-handler` Lambda — serves GEO content
+- `geo-content-generator` Lambda — async AgentCore invocation
+- `geo-content-storage` Lambda — agent writes to DDB
+- DynamoDB table `geo-content` (skip with `CreateTable=false`)
 
-| 參數 | 預設值 | 說明 |
-|------|--------|------|
-| `TableName` | `geo-content` | DynamoDB table 名稱 |
-| `AgentRuntimeArn` | （空） | AgentCore Runtime ARN |
-| `DefaultOriginHost` | （空） | 原始站台 domain（如 `www.setn.com`） |
-| `OriginVerifySecret` | `geo-agent-cf-origin-2026` | Defense-in-depth 驗證 header |
-| `CloudFrontDistributionArn` | （空） | CF distribution ARN |
-| `CreateTable` | `true` | 是否建立 DDB table（多租戶共用時設 `false`） |
-| `SetupCfOrigin` | `false` | 自動設定既有 CF distribution 的 origin |
-| `CffArn` | （空） | 要關聯的 CFF ARN |
-| `CffBehaviorPath` | `*` | CFF 關聯的 cache behavior path |
+### SAM Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `TableName` | `geo-content` | DynamoDB table name |
+| `AgentRuntimeArn` | (empty) | AgentCore Runtime ARN |
+| `DefaultOriginHost` | (empty) | Origin site domain (e.g., `www.setn.com`) |
+| `OriginVerifySecret` | `geo-agent-cf-origin-2026` | Defense-in-depth verification header |
+| `CloudFrontDistributionArn` | (empty) | CF distribution ARN |
+| `CreateTable` | `true` | Whether to create DDB table (set `false` for multi-tenant sharing) |
+| `SetupCfOrigin` | `false` | Auto-configure existing CF distribution's origin |
+| `CffArn` | (empty) | CFF ARN to associate |
+| `CffBehaviorPath` | `*` | Cache behavior path for CFF association |
 
 ### SAM S3 Hash Collision
 
-SAM 偶爾會因 S3 hash 未變而跳過 Lambda 更新。此時直接更新：
+SAM occasionally skips Lambda updates due to unchanged S3 hashes. Update directly:
 
 ```bash
-# 打包 infra/lambda/ 所有檔案（三個 Lambda 共用同一 package）
+# Package all files in infra/lambda/ (all three Lambdas share the same package)
 cd infra/lambda && zip -r /tmp/lambda.zip . && cd ../..
 
-# 逐一更新
+# Update each Lambda
 aws lambda update-function-code --function-name geo-content-handler --zip-file fileb:///tmp/lambda.zip
 aws lambda update-function-code --function-name geo-content-generator --zip-file fileb:///tmp/lambda.zip
 aws lambda update-function-code --function-name geo-content-storage --zip-file fileb:///tmp/lambda.zip
@@ -87,44 +90,44 @@ aws lambda update-function-code --function-name geo-content-storage --zip-file f
 
 ### CloudFront Function
 
-CFF `geo-bot-router-oac`（`infra/cloudfront-function/geo-router-oac.js`）負責：
-1. 偵測 AI bot User-Agent（GPTBot、ClaudeBot 等）
-2. 設定 `x-original-host` header（多租戶路由用）
-3. 切換 origin 到 `geo-lambda-origin`（Lambda Function URL）
+CFF `geo-bot-router-oac` (`infra/cloudfront-function/geo-router-oac.js`) handles:
+1. AI bot User-Agent detection (GPTBot, ClaudeBot, etc.)
+2. Setting `x-original-host` header (for multi-tenant routing)
+3. Switching origin to `geo-lambda-origin` (Lambda Function URL)
 
-更新 CFF：
+Update CFF:
 ```bash
-# 取得 ETag
+# Get ETag
 aws cloudfront describe-function --name geo-bot-router-oac --query 'ETag' --output text
 
-# 更新
+# Update
 aws cloudfront update-function \
   --name geo-bot-router-oac \
   --if-match <ETAG> \
   --function-config Comment="GEO bot router (OAC)",Runtime=cloudfront-js-2.0 \
   --function-code fileb://infra/cloudfront-function/geo-router-oac.js
 
-# 發布
+# Publish
 aws cloudfront publish-function \
   --name geo-bot-router-oac \
   --if-match <NEW_ETAG>
 ```
 
-### 多站台部署（共用 DynamoDB）
+### Multi-Site Deployment (Shared DynamoDB)
 
-DDB key 格式為 `{host}#{path}[?query]`，天生支援多租戶。多個站台共用同一張 DDB table。
+DDB key format is `{host}#{path}[?query]`, natively supporting multi-tenancy. Multiple sites share a single DDB table.
 
-#### 情境 1：全新 CloudFront Distribution
+#### Scenario 1: New CloudFront Distribution
 
 ```bash
-# Step 1: 部署 Lambda backend
+# Step 1: Deploy Lambda backend
 sam deploy --stack-name geo-backend-site \
   -t infra/template.yaml \
   --parameter-overrides \
     TableName=geo-content \
     DefaultOriginHost=www.example.com
 
-# Step 2: 建立 CloudFront distribution
+# Step 2: Create CloudFront distribution
 sam deploy --stack-name geo-cf-site \
   -t infra/cloudfront-distribution.yaml \
   --parameter-overrides \
@@ -133,7 +136,7 @@ sam deploy --stack-name geo-cf-site \
     GeoOacId=<OacId from Step 1>
 ```
 
-#### 情境 2：既有 CloudFront Distribution
+#### Scenario 2: Existing CloudFront Distribution
 
 ```bash
 sam deploy --stack-name geo-backend-site \
@@ -147,11 +150,11 @@ sam deploy --stack-name geo-backend-site \
     CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
 
-`SetupCfOrigin=true` 會自動在既有 distribution 加上 `geo-lambda-origin` origin + OAC + CFF。
+`SetupCfOrigin=true` automatically adds `geo-lambda-origin` origin + OAC + CFF to the existing distribution.
 
-#### 新增站台（共用 DDB table）
+#### Adding More Sites (Shared DDB Table)
 
-第二組以上的站台設 `CreateTable=false`：
+For the second site onward, set `CreateTable=false`:
 
 ```bash
 sam deploy --stack-name geo-backend-linetoday \
@@ -165,32 +168,32 @@ sam deploy --stack-name geo-backend-linetoday \
     CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
 
-## llms.txt 存入
+## llms.txt Storage
 
 ```bash
-# 1. 產出草稿
-agentcore invoke '{"prompt": "幫 news.tvbs.com.tw 產生 llms.txt"}'
+# 1. Generate draft
+agentcore invoke '{"prompt": "Generate llms.txt for news.tvbs.com.tw"}'
 
-# 2. 審核後存入 DDB
+# 2. Store after review
 aws lambda invoke --function-name geo-content-storage \
   --region us-east-1 \
   --cli-binary-format raw-in-base64-out \
   --payload '{
     "url_path": "/llms.txt",
-    "geo_content": "<審核後的 llms.txt 內容>",
+    "geo_content": "<reviewed llms.txt content>",
     "original_url": "https://example.com",
     "content_type": "text/markdown; charset=utf-8"
   }' /dev/null
 
-# 3. 驗證
+# 3. Verify
 curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"
 ```
 
-## 端到端測試
+## End-to-End Testing
 
-### CloudFront 快取清除
+### CloudFront Cache Invalidation
 
-DDB purge（`?purge=true`）只清 DDB 記錄，不清 CF 快取。若需立即生效：
+DDB purge (`?purge=true`) only clears DDB records, not CF cache. For immediate effect:
 
 ```bash
 aws cloudfront create-invalidation \
@@ -198,24 +201,24 @@ aws cloudfront create-invalidation \
   --paths "/world/3149600"
 ```
 
-每月前 1,000 個 invalidation path 免費。
+First 1,000 invalidation paths per month are free.
 
-### 測試指令
+### Test Commands
 
 ```bash
-# 模擬 AI bot
+# Simulate AI bot
 curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot"
 
-# async 模式
+# async mode
 curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot&mode=async"
 
-# sync 模式（~30-40s）
+# sync mode (~30-40s)
 curl "https://<CF_DOMAIN>/world/3149599?ua=genaibot&mode=sync"
 
-# 驗證 Function URL 直接存取被擋
-curl "https://<FUNCTION_URL>/world/3149599"  # 應回 403
+# Verify direct Function URL access is blocked
+curl "https://<FUNCTION_URL>/world/3149599"  # Should return 403
 
 # llms.txt
 curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"  # text/markdown
-curl "https://<CF_DOMAIN>/llms.txt"               # 原站內容
+curl "https://<CF_DOMAIN>/llms.txt"               # origin site content
 ```
