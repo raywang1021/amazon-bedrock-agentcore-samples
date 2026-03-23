@@ -4,6 +4,8 @@
 
 ## 系統總覽
 
+![GEO Agent 架構圖](geo-architecture.png)
+
 本系統使用 CloudFront OAC + Lambda Function URL 架構，零額外成本。
 多個 CloudFront distribution 共用同一組 Lambda + DynamoDB，透過 `{host}#{path}` composite key 實現多租戶。
 

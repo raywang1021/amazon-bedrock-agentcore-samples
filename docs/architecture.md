@@ -7,6 +7,8 @@
 The system uses a CloudFront OAC + Lambda Function URL architecture.
 Multiple CloudFront distributions share a single set of Lambda + DynamoDB, achieving multi-tenancy via `{host}#{path}` composite keys.
 
+![GEO Agent Architecture](geo-architecture.png)
+
 ```
 AI Bot (GPTBot, ClaudeBot...)
      │
