@@ -42,7 +42,8 @@ fi
 if ! command -v sam &>/dev/null; then
     MISSING="${MISSING}  - sam CLI — required for Lambda/DDB deployment\n"
     MISSING="${MISSING}      macOS:  brew install aws-sam-cli\n"
-    MISSING="${MISSING}      Linux:  pip install aws-sam-cli\n"
+    MISSING="${MISSING}      Linux:  pipx install aws-sam-cli  (recommended, isolated env)\n"
+    MISSING="${MISSING}              pip install --user aws-sam-cli  (alternative)\n"
     MISSING="${MISSING}      Docs:   https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html\n\n"
 fi
 
@@ -293,18 +294,34 @@ echo "╔═══════════════════════�
 echo "║  Setup complete!                                 ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
+
+# Auto-activate venv if script was sourced
+if [ -n "$BASH_SOURCE" ] && [ "$0" != "$BASH_SOURCE" ]; then
+    echo "==> Activating virtual environment..."
+    source .venv/bin/activate
+    echo "  ✓ venv activated"
+    echo ""
+fi
+
 echo "Next steps:"
 echo ""
-echo "  1. source .venv/bin/activate"
-echo "  2. agentcore configure        # AWS credentials + AgentCore setup"
-echo "  3. agentcore deploy           # Deploy agent → get Runtime ARN"
-echo "  4. sam build -t infra/template.yaml"
-echo "  5. sam deploy -t infra/template.yaml"
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo "  1. source .venv/bin/activate"
+    echo "  2. agentcore configure        # AWS credentials + AgentCore setup"
+    echo "  3. agentcore deploy           # Deploy agent → get Runtime ARN"
+else
+    echo "  1. agentcore configure        # AWS credentials + AgentCore setup"
+    echo "  2. agentcore deploy           # Deploy agent → get Runtime ARN"
+fi
+echo "  Then:"
+echo "     sam build -t infra/template.yaml"
+echo "     sam deploy -t infra/template.yaml"
 echo ""
 if [ "$CREATE_DISTRIBUTION" = "true" ]; then
     echo "  A new CloudFront distribution will be created during sam deploy."
     echo "  After deployment, check the stack outputs for the distribution domain."
     echo ""
 fi
+echo "  TIP: Use 'source ./setup.sh' to auto-activate the venv after setup."
 echo "  See docs/deployment.md for full deployment guide."
 echo ""
