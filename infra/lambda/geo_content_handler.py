@@ -46,7 +46,7 @@ table = dynamodb.Table(TABLE_NAME)
 lambda_client = boto3.client("lambda")
 
 
-CONTROL_PARAMS = {"ua", "mode", "purge"}
+CONTROL_PARAMS = {"ua", "mode", "purge", "action"}
 
 
 def _filtered_qs(event):
@@ -174,6 +174,155 @@ def _invoke_agentcore_sync(url):
         return None
 
 
+def _scores_dashboard(host):
+    """Return an HTML dashboard showing DDB records for this host."""
+    try:
+        # Scan with filter for this host's records
+        items = []
+        scan_kwargs = {
+            "FilterExpression": "begins_with(url_path, :prefix)",
+            "ExpressionAttributeValues": {":prefix": f"{host}#"},
+        }
+        while True:
+            resp = table.scan(**scan_kwargs)
+            items.extend(resp.get("Items", []))
+            if "LastEvaluatedKey" not in resp:
+                break
+            scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+    except Exception as e:
+        return _error(500, f"Scan failed: {e}")
+
+    # Build rows
+    rows = []
+    for item in items:
+        url_path = item.get("url_path", "")
+        # Strip host prefix for display
+        display_path = url_path.split("#", 1)[1] if "#" in url_path else url_path
+        status = item.get("status", "")
+        created = item.get("created_at", "")[:19]  # trim to seconds
+        gen_ms = item.get("generation_duration_ms", "")
+        orig = item.get("original_score", {})
+        geo = item.get("geo_score", {})
+        orig_score = orig.get("overall_score", "") if orig else ""
+        geo_score = geo.get("overall_score", "") if geo else ""
+        improvement = item.get("score_improvement", "")
+        # Convert Decimal
+        orig_score = float(orig_score) if orig_score != "" else ""
+        geo_score = float(geo_score) if geo_score != "" else ""
+        improvement = float(improvement) if improvement != "" else ""
+        gen_ms = int(float(gen_ms)) if gen_ms != "" else ""
+        rows.append({
+            "path": display_path,
+            "status": status,
+            "original": orig_score,
+            "geo": geo_score,
+            "improvement": improvement,
+            "gen_ms": gen_ms,
+            "created": created,
+        })
+
+    rows_json = json.dumps(rows, default=str)
+    html = _dashboard_html(host, rows_json, len(rows))
+
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"},
+        "body": html,
+    }
+
+
+def _dashboard_html(host, rows_json, count):
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEO Scores - {host}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f5f5f5; color: #333; padding: 20px; }}
+  h1 {{ font-size: 1.4em; margin-bottom: 4px; }}
+  .meta {{ color: #666; font-size: 0.85em; margin-bottom: 16px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #fff;
+           box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 0.85em; }}
+  th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }}
+  th {{ background: #fafafa; cursor: pointer; user-select: none; position: sticky; top: 0; }}
+  th:hover {{ background: #f0f0f0; }}
+  th .arrow {{ font-size: 0.7em; margin-left: 4px; }}
+  tr:hover {{ background: #f9f9f9; }}
+  .status-ready {{ color: #2e7d32; }}
+  .status-processing {{ color: #e65100; }}
+  .positive {{ color: #2e7d32; font-weight: 600; }}
+  .negative {{ color: #c62828; font-weight: 600; }}
+  .zero {{ color: #666; }}
+  .path {{ max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+  .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
+</style>
+</head>
+<body>
+<h1>GEO Score Dashboard</h1>
+<p class="meta">{host} &mdash; {count} records</p>
+<table id="t">
+<thead>
+<tr>
+  <th data-col="path">Path <span class="arrow"></span></th>
+  <th data-col="status">Status <span class="arrow"></span></th>
+  <th data-col="original" class="num">Original <span class="arrow"></span></th>
+  <th data-col="geo" class="num">GEO <span class="arrow"></span></th>
+  <th data-col="improvement" class="num">+/- <span class="arrow"></span></th>
+  <th data-col="gen_ms" class="num">Gen (ms) <span class="arrow"></span></th>
+  <th data-col="created">Created <span class="arrow"></span></th>
+</tr>
+</thead>
+<tbody id="tb"></tbody>
+</table>
+<script>
+const rows = {rows_json};
+let sortCol = "improvement", sortAsc = false;
+
+function render() {{
+  const sorted = [...rows].sort((a, b) => {{
+    let va = a[sortCol], vb = b[sortCol];
+    if (va === "" || va === null) return 1;
+    if (vb === "" || vb === null) return -1;
+    if (typeof va === "number") return sortAsc ? va - vb : vb - va;
+    return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  }});
+  const tb = document.getElementById("tb");
+  tb.innerHTML = sorted.map(r => {{
+    const impClass = r.improvement > 0 ? "positive" : r.improvement < 0 ? "negative" : "zero";
+    const stClass = r.status === "ready" ? "status-ready" : "status-processing";
+    return `<tr>
+      <td class="path" title="${{r.path}}">${{r.path}}</td>
+      <td class="${{stClass}}">${{r.status}}</td>
+      <td class="num">${{r.original !== "" ? r.original : "-"}}</td>
+      <td class="num">${{r.geo !== "" ? r.geo : "-"}}</td>
+      <td class="num ${{impClass}}">${{r.improvement !== "" ? (r.improvement > 0 ? "+" : "") + r.improvement : "-"}}</td>
+      <td class="num">${{r.gen_ms !== "" ? r.gen_ms.toLocaleString() : "-"}}</td>
+      <td>${{r.created || "-"}}</td>
+    </tr>`;
+  }}).join("");
+  document.querySelectorAll("th .arrow").forEach(el => el.textContent = "");
+  const active = document.querySelector(`th[data-col="${{sortCol}}"] .arrow`);
+  if (active) active.textContent = sortAsc ? " \\u25B2" : " \\u25BC";
+}}
+
+document.querySelectorAll("th[data-col]").forEach(th => {{
+  th.addEventListener("click", () => {{
+    const col = th.dataset.col;
+    if (sortCol === col) sortAsc = !sortAsc;
+    else {{ sortCol = col; sortAsc = col === "path" || col === "created"; }}
+    render();
+  }});
+}});
+
+render();
+</script>
+</body>
+</html>"""
+
+
 def handler(event, context):
     handler_start = time.time()
 
@@ -192,6 +341,11 @@ def handler(event, context):
     # Falls back to x-forwarded-host or host header
     original_host = headers.get("x-original-host") or headers.get("x-forwarded-host") or headers.get("host") or ""
     ddb_key = _ddb_key(original_host, path, qs)
+
+    # --- Scores dashboard ---
+    params = event.get("queryStringParameters") or {}
+    if params.get("action") == "scores":
+        return _scores_dashboard(original_host)
 
     # --- Purge ---
     if _is_purge(event):

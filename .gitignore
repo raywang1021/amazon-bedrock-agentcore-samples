@@ -45,6 +45,10 @@ samconfig.toml
 .bedrock_agentcore/
 .bedrock_agentcore.yaml
 
+# Generated diagrams (intermediate outputs)
+generated-diagrams/
+geo-architecture-v2.png
+
 # OS
 .DS_Store
 Thumbs.db
