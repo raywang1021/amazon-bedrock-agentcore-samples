@@ -167,9 +167,33 @@ for item in sorted_items[:10]:
 3. **內容截斷**: 評分時會將內容截斷至 8000 字元以控制成本
 4. **DynamoDB 容量**: 分數資料會增加每個項目的大小，請確保有足夠的儲存容量
 
+## 分數儀表板
+
+每個 CloudFront distribution 都內建了分數儀表板，透過 `?action=scores` 參數存取。
+
+### 存取方式
+
+```
+https://<cf-domain>/?ua=genaibot&action=scores
+```
+
+範例：
+- SETN: `https://dlmwhof468s34.cloudfront.net/?ua=genaibot&action=scores`
+- TVBS: `https://dq324v08a4yas.cloudfront.net/?ua=genaibot&action=scores`
+
+### 功能
+
+- 多租戶隔離：每個 domain 只能看到自己的 DDB 資料（以 `begins_with(url_path, "{host}#")` 過濾）
+- 可排序欄位：路徑、狀態、原始分數、GEO 分數、改善幅度（+/-）、生成時間（ms）、建立時間
+- 預設排序：依改善幅度由高到低
+- 自包含 HTML 頁面（無外部相依）
+
+### 實作方式
+
+儀表板由 `geo-content-handler` Lambda 在收到 `?action=scores` 查詢參數時提供。`action` 參數已加入所有 CloudFront cache policy 的白名單。
+
 ## 未來改進方向
 
-- 增加分數趨勢分析儀表板
 - 支援批次評分和比較
 - 增加更多評分維度（如可讀性、結構化程度等）
 - 整合 CloudWatch 指標追蹤

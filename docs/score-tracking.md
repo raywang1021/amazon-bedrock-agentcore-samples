@@ -166,9 +166,33 @@ for item in sorted_items[:10]:
 3. **Content truncation**: Content is truncated to 8000 characters during scoring to control costs
 4. **DynamoDB capacity**: Score data increases each item's size; ensure sufficient storage capacity
 
+## Scores Dashboard
+
+A built-in web dashboard is available at each CloudFront distribution's `?action=scores` endpoint.
+
+### Access
+
+```
+https://<cf-domain>/?ua=genaibot&action=scores
+```
+
+Examples:
+- SETN: `https://dlmwhof468s34.cloudfront.net/?ua=genaibot&action=scores`
+- TVBS: `https://dq324v08a4yas.cloudfront.net/?ua=genaibot&action=scores`
+
+### Features
+
+- Multi-tenant: each domain only sees its own DDB records (filtered by `begins_with(url_path, "{host}#")`)
+- Sortable columns: Path, Status, Original Score, GEO Score, Improvement (+/-), Generation Time (ms), Created
+- Default sort: by improvement descending
+- Self-contained HTML page (no external dependencies)
+
+### Implementation
+
+The dashboard is served by `geo-content-handler` Lambda when `?action=scores` is present in the query string. The `action` parameter is whitelisted in all CloudFront cache policies.
+
 ## Future Improvements
 
-- Score trend analysis dashboard
 - Batch scoring and comparison support
 - Additional scoring dimensions (readability, structure, etc.)
 - CloudWatch metrics integration
