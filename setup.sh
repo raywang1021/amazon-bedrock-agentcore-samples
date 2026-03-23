@@ -12,6 +12,62 @@ echo "╚═══════════════════════�
 echo ""
 
 # ----------------------------------------------------------
+# Step 0: Prerequisite checks
+# ----------------------------------------------------------
+echo "--- Checking prerequisites ---"
+echo ""
+
+MISSING=""
+
+if ! command -v python3 &>/dev/null; then
+    MISSING="${MISSING}  - python3 (>= 3.10)\n"
+fi
+
+if ! command -v node &>/dev/null; then
+    MISSING="${MISSING}  - node (>= 20) — required by AgentCore toolkit\n"
+fi
+
+if ! command -v aws &>/dev/null; then
+    MISSING="${MISSING}  - aws CLI (v2)\n"
+fi
+
+if ! command -v sam &>/dev/null; then
+    MISSING="${MISSING}  - sam CLI — required for Lambda/DDB deployment\n"
+fi
+
+if [ -n "$MISSING" ]; then
+    echo "Missing required tools:"
+    echo ""
+    printf "$MISSING"
+    echo ""
+    echo "Install them and re-run ./setup.sh"
+    exit 1
+fi
+
+# Version checks
+PYTHON_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+NODE_VER=$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)
+
+echo "  python3  $PYTHON_VER"
+echo "  node     $(node -v 2>/dev/null)"
+echo "  aws      $(aws --version 2>/dev/null | awk '{print $1}' | cut -d/ -f2)"
+echo "  sam      $(sam --version 2>/dev/null | awk '{print $NF}')"
+echo ""
+
+if [ "$(echo "$PYTHON_VER < 3.10" | bc 2>/dev/null)" = "1" ]; then
+    echo "  ⚠ Python >= 3.10 required (found $PYTHON_VER)"
+    exit 1
+fi
+
+if [ -n "$NODE_VER" ] && [ "$NODE_VER" -lt 20 ] 2>/dev/null; then
+    echo "  ⚠ Node >= 20 required (found v$NODE_VER)"
+    exit 1
+fi
+
+echo "  ✓ All prerequisites met"
+echo ""
+
+# ----------------------------------------------------------
 # Step 1: Collect configuration
 # ----------------------------------------------------------
 echo "--- Configuration ---"
