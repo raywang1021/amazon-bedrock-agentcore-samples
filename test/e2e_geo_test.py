@@ -211,7 +211,7 @@ def run_full_test(site_key: str, url: str, quick: bool = False) -> TestResult:
     print(f"\n--- Step 2: Sync mode (wait for AgentCore) ---")
     try:
         start = time.time()
-        resp = requests.get(_bot_url(url, mode="sync"), headers={"User-Agent": UA_BOT}, timeout=120)
+        resp = requests.get(_bot_url(url, mode="sync"), headers={"User-Agent": UA_BOT}, timeout=80)
         elapsed = time.time() - start
         hdrs = _get_headers(resp)
         is_geo = hdrs["X-GEO-Optimized"] == "true"
