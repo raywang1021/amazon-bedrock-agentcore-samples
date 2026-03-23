@@ -26,6 +26,13 @@ Parameters:
     Description: >-
       CloudFront distribution ARN for Lambda permission.
       Format: arn:aws:cloudfront::ACCOUNT:distribution/DIST_ID
+  CreateDistribution:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Whether to create a new CloudFront distribution.
+      Set to true when no existing distribution is provided.
   CreateTable:
     Type: String
     Default: "true"
@@ -56,6 +63,7 @@ Conditions:
   HasAgentArn: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
   HasCfDistArn: !Not [!Equals [!Ref CloudFrontDistributionArn, ""]]
   ShouldCreateTable: !Equals [!Ref CreateTable, "true"]
+  ShouldCreateDistribution: !Equals [!Ref CreateDistribution, "true"]
   ShouldSetupCfOrigin: !And
     - !Equals [!Ref SetupCfOrigin, "true"]
     - !Condition HasCfDistArn
@@ -100,6 +108,146 @@ Resources:
       SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/*"
 
   # ============================================================
+  # NEW CloudFront Distribution (created when no existing one)
+  # Includes: CFF, cache policy, OAC, Lambda origin
+  # ============================================================
+  GeoCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Condition: ShouldCreateDistribution
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AWS::StackName}-geo-cache-policy"
+        DefaultTTL: 0
+        MaxTTL: 86400
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig:
+            HeaderBehavior: whitelist
+            Headers:
+              - x-geo-bot
+              - x-original-host
+          CookiesConfig:
+            CookieBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: whitelist
+            QueryStrings:
+              - action
+              - mode
+              - purge
+              - ua
+
+  GeoOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Condition: ShouldCreateDistribution
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-geo-origin-request"
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers:
+            - x-geo-bot
+            - x-geo-bot-ua
+            - x-original-host
+            - x-origin-verify
+        CookiesConfig:
+          CookieBehavior: none
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
+  GeoBotRouterFunction:
+    Type: AWS::CloudFront::Function
+    Condition: ShouldCreateDistribution
+    Properties:
+      Name: !Sub "${AWS::StackName}-geo-bot-router"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Routes AI bot requests to GEO Lambda origin (OAC SigV4)
+        Runtime: cloudfront-js-2.0
+        KeyValueStoreAssociations: []
+      FunctionCode: !Sub |
+        import cf from 'cloudfront';
+        var AI_BOT_PATTERNS = [
+          'gptbot','oai-searchbot','chatgpt-user',
+          'claudebot','claude-web','claude-user',
+          'perplexitybot','perplexity-user',
+          'google-extended','googleother',
+          'bingbot','copilot',
+          'meta-externalagent','facebookbot',
+          'applebot','applebot-extended',
+          'cohere-ai','amazonbot','bytespider','ccbot','diffbot','youbot'
+        ];
+        function handler(event) {
+          var request = event.request;
+          var ua = (request.headers['user-agent'] && request.headers['user-agent'].value) || '';
+          var uaLower = ua.toLowerCase();
+          var isAiBot = false;
+          for (var i = 0; i < AI_BOT_PATTERNS.length; i++) {
+            if (uaLower.indexOf(AI_BOT_PATTERNS[i]) !== -1) { isAiBot = true; break; }
+          }
+          if (!isAiBot && request.querystring && request.querystring.ua && request.querystring.ua.value === 'genaibot') {
+            isAiBot = true;
+          }
+          if (isAiBot) {
+            request.headers['x-geo-bot'] = { value: 'true' };
+            request.headers['x-geo-bot-ua'] = { value: ua };
+            request.headers['x-original-host'] = { value: request.headers['host'] ? request.headers['host'].value : '' };
+            cf.selectRequestOriginById('geo-lambda-origin');
+          }
+          return request;
+        }
+
+  GeoDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: ShouldCreateDistribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "GEO Edge Serving - ${DefaultOriginHost}"
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_All
+        DefaultRootObject: ""
+        Origins:
+          # Primary origin: the actual website
+          - Id: !Sub "${DefaultOriginHost}"
+            DomainName: !Ref DefaultOriginHost
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+              OriginReadTimeout: 30
+              OriginKeepaliveTimeout: 5
+          # GEO Lambda origin (OAC SigV4)
+          - Id: geo-lambda-origin
+            DomainName: !Select [2, !Split ["/", !GetAtt GeoFunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !Ref GeoLambdaOac
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+              OriginReadTimeout: 85
+              OriginKeepaliveTimeout: 5
+            OriginCustomHeaders:
+              - HeaderName: x-origin-verify
+                HeaderValue: !Ref OriginVerifySecret
+        DefaultCacheBehavior:
+          TargetOriginId: !Sub "${DefaultOriginHost}"
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: !Ref GeoCachePolicy
+          OriginRequestPolicyId: !Ref GeoOriginRequestPolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt GeoBotRouterFunction.FunctionMetadata.FunctionARN
+
+  # ============================================================
   # Custom Resource: auto-configure existing CF distribution
   # ============================================================
   CfOriginSetupFunction:
@@ -123,9 +271,6 @@ Resources:
   CfOriginSetup:
     Type: AWS::CloudFormation::CustomResource
     Condition: ShouldSetupCfOrigin
-    DependsOn:
-      - GeoFunctionUrl
-      - GeoLambdaOac
     Properties:
       ServiceToken: !GetAtt CfOriginSetupFunction.Arn
       DistributionId: !Select [1, !Split ["/", !Ref CloudFrontDistributionArn]]
@@ -281,3 +426,11 @@ Outputs:
   OacId:
     Description: Origin Access Control ID
     Value: !Ref GeoLambdaOac
+  DistributionId:
+    Condition: ShouldCreateDistribution
+    Description: CloudFront distribution ID (auto-created)
+    Value: !Ref GeoDistribution
+  DistributionDomain:
+    Condition: ShouldCreateDistribution
+    Description: CloudFront distribution domain name
+    Value: !GetAtt GeoDistribution.DomainName
