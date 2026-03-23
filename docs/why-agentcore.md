@@ -72,6 +72,63 @@ More combination examples:
 
 This ability to trigger multi-step, multi-tool combinations from a single sentence is something a plain LLM API call cannot do.
 
+## Multi-Tenant Shared Architecture: Adding an Origin Without Changing the Agent
+
+This project's architecture naturally supports multi-tenancy. When you want to enable GEO service for a new website, you only need to create a new CloudFront distribution pointing to that site — the agent and Lambda require zero changes.
+
+```
+                    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+                    │  CF Dist A   │  │  CF Dist B   │  │  CF Dist C   │
+                    │ news.xxx.com │  │ 24h.shop.com │  │ blog.yyy.com │
+                    └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+                           │                 │                 │
+                           │    CFF: AI bot? │                 │
+                           └────────┬────────┘─────────────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │  Lambda (shared)     │
+                         │  geo-content-handler │
+                         └──────────┬──────────┘
+                                    │ cache miss
+                                    ▼
+                         ┌─────────────────────┐
+                         │  AgentCore Agent     │
+                         │  (shared, auto-      │
+                         │   detects content    │
+                         │   type + rewrites)   │
+                         └─────────────────────┘
+```
+
+Division of responsibilities:
+
+| Layer | Responsibility | Shared? |
+|-------|---------------|---------|
+| CloudFront + CFF | Routing: normal users → origin, AI bots → Lambda | One per origin |
+| Lambda | Serving: fetch GEO content from DynamoDB and return | Shared |
+| AgentCore Agent | Intelligence: fetch content → detect type (ecommerce/news/FAQ/blog) → apply matching rewrite strategy | Shared |
+| DynamoDB | Storage | Shared |
+
+The key is the content type detection in `prompts.py`. The agent automatically classifies fetched content (ECOMMERCE, NEWS, FAQ, BLOG_TUTORIAL, GENERAL) and applies the corresponding rewrite strategy. This means:
+
+- Adding a new origin only requires one `aws cloudformation create-stack`
+- No need to write different processing logic for different types of websites
+- Iterating on content strategy (tuning prompts, adding new types) only requires `agentcore deploy`, without affecting serving infra
+
+This is the core benefit AgentCore brings to this project: extracting the complex "detect + rewrite" logic out of the infra layer and delegating it to the agent. Infra handles routing and serving, the agent handles thinking and producing — each layer does its own job, scaling independently without interference.
+
+### What If You Don't Use This Architecture?
+
+Without AgentCore, content type detection and rewrite logic would have to live in the Lambda itself. Common approaches:
+
+1. **Rule-based detection in Lambda** — Use URL patterns, HTML meta tags, or DOM structure to guess content type, then map to different prompt templates. This logic grows increasingly complex; every new website type may require rule adjustments.
+
+2. **Hardcode prompt per origin** — e.g., PChome always uses the ecommerce prompt, Taiwan Mobile always uses the FAQ prompt. Simple but inflexible — if the same site has different page types (e.g., an FAQ page on an ecommerce site), the rewrite will be wrong.
+
+3. **Two-pass LLM calls in Lambda** — Call LLM once for classification, then again for rewriting. You're essentially hand-building the agent's tool selection loop inside Lambda, but without session management, memory, or observability, and Lambda timeout becomes a constraint.
+
+With the current architecture, all of this is handled by the agent in a single prompt. LLMs are inherently better at understanding content semantics than regex or rule-based approaches. Adding a new content type only requires adding a strategy section in `prompts.py` — no infra changes needed.
+
 ## Real-World Deployment: Three-Layer Trigger Architecture
 
 In production, GEO content generation has three coexisting paths:

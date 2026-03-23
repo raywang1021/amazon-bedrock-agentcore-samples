@@ -51,3 +51,20 @@ sanitize 做三件事：
 3. **Redact 已知 injection patterns** — `ignore all previous instructions`、`[INST]`、`<<SYS>>` 等 token
 
 保護對象：直接保護 LLM 不被劫持，最終保護透過 CloudFront 拿到 GEO 內容的 AI 搜尋引擎和其用戶。任何把 untrusted external content 餵進 LLM 的系統都需要這層防護。
+
+
+## AgentCore 跟 OpenClaw 這類 agent framework 有什麼不同？
+
+核心理念是相似的 — 你定義一組能力（tools/skills），agent 根據輸入自己判斷怎麼組合來達成目標，而不是預先寫死 workflow。這是整個 AI agent 領域的共同趨勢：從「寫死流程」走向「agent 自主編排」。
+
+差異在定位和落地場景：
+
+| | OpenClaw | AgentCore |
+|---|---------|-----------|
+| 部署方式 | Self-hosted（本機、VPS、Raspberry Pi） | AWS Managed Service |
+| 主要場景 | 個人助理、messaging 自動化（Telegram、Discord、WhatsApp） | 企業 production workload |
+| 核心概念 | Skills + Heartbeat + Memory + Channels | Runtime + Memory + Identity + Gateway + Observability |
+| 安全性 | 自行管理 | IAM、OAC、Bedrock Guardrail、execution role |
+| 擴展性 | 單機為主 | Serverless auto-scaling、session 隔離 |
+
+簡單說：OpenClaw 適合個人跑在自己機器上的 agent，AgentCore 適合需要 production-grade infra 的企業場景。本專案選擇 AgentCore 是因為 GEO 內容透過 CloudFront CDN 大量散播，需要 managed runtime、observability、以及跟 AWS 服務（DynamoDB、Lambda、CloudFront）的原生整合。

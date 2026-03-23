@@ -102,7 +102,7 @@ Resources:
               HTTPPort: 80
               HTTPSPort: 443
               OriginProtocolPolicy: !Ref OriginProtocolPolicy
-              OriginSslProtocols:
+              OriginSSLProtocols:
                 - TLSv1.2
           - Id: geo-lambda-origin
             DomainName: !Ref GeoFunctionUrlDomain
@@ -111,7 +111,7 @@ Resources:
               HTTPPort: 80
               HTTPSPort: 443
               OriginProtocolPolicy: https-only
-              OriginSslProtocols:
+              OriginSSLProtocols:
                 - TLSv1.2
               OriginReadTimeout: 60
               OriginKeepaliveTimeout: 5

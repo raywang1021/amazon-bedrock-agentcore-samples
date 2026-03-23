@@ -72,6 +72,62 @@ Agent 會自動拆解成：
 
 這種「一句話觸發多步驟、多 tool 組合」的能力，是單純呼叫 LLM API 做不到的。
 
+## Multi-Tenant 共用架構：加一個 Origin 不用改 Agent
+
+這個專案的架構天然支援多租戶（multi-tenant）。當你要為一個新網站啟用 GEO 服務時，只需要建一個新的 CloudFront distribution 指向該網站，agent 和 Lambda 完全不用動。
+
+```
+                    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+                    │  CF Dist A   │  │  CF Dist B   │  │  CF Dist C   │
+                    │ news.xxx.com │  │ 24h.shop.com │  │ blog.yyy.com │
+                    └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+                           │                 │                 │
+                           │    CFF: AI bot? │                 │
+                           └────────┬────────┘─────────────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │  Lambda (共用)       │
+                         │  geo-content-handler │
+                         └──────────┬──────────┘
+                                    │ cache miss
+                                    ▼
+                         ┌─────────────────────┐
+                         │  AgentCore Agent     │
+                         │  (共用，自動判斷      │
+                         │   內容類型 + 改寫)    │
+                         └─────────────────────┘
+```
+
+分工：
+
+| 層級 | 職責 | 是否共用 |
+|------|------|---------|
+| CloudFront + CFF | 路由：一般使用者 → origin，AI bot → Lambda | 每個 origin 各一份 |
+| Lambda | Serving：從 DynamoDB 拿 GEO 內容回傳 | 共用 |
+| AgentCore Agent | 智慧層：抓取內容 → 判斷類型（電商/新聞/FAQ/部落格）→ 選對應策略改寫 | 共用 |
+| DynamoDB | 儲存 | 共用 |
+
+關鍵在於 `prompts.py` 裡的內容類型判斷。Agent 會根據抓到的內容自動分類（ECOMMERCE、NEWS、FAQ、BLOG_TUTORIAL、GENERAL），然後套用對應的改寫策略。這代表：
+
+- 新增一個 origin 只需要一個 `aws cloudformation create-stack`
+- 不需要為不同類型的網站寫不同的處理邏輯
+- 內容策略的迭代（調 prompt、加新類型）只要 `agentcore deploy`，不影響 serving infra
+
+這就是 AgentCore 在這個專案帶來的核心好處：把「判斷 + 改寫」的複雜邏輯從 infra 層抽離，交給 agent 處理。Infra 負責 routing 和 serving，agent 負責思考和產出，兩邊各司其職，scale 時互不干擾。
+
+### 如果不用這個架構呢？
+
+沒有 AgentCore 的話，內容類型判斷和改寫邏輯就得寫在 Lambda 裡面。常見做法：
+
+1. **Lambda 裡寫 rule-based 判斷** — 用 URL pattern、HTML meta tag、或 DOM 結構去猜內容類型，再 mapping 到不同的 prompt template。這邏輯會越寫越複雜，每加一種網站可能就要調規則。
+
+2. **每個 origin 寫死對應的 prompt** — 比如 PChome 就固定用電商 prompt，台灣大哥大就固定用 FAQ prompt。簡單但完全沒彈性，同一個網站裡如果有不同類型的頁面（比如電商網站裡的 FAQ 頁）就會改寫錯。
+
+3. **Lambda 裡先呼叫一次 LLM 做分類，再呼叫一次做改寫** — 等於你自己在 Lambda 裡手刻了 agent 的 tool selection loop，但沒有 session、沒有 memory、沒有 observability，而且 Lambda timeout 會是個問題。
+
+現在的架構，這些全部交給 agent 一句 prompt 搞定。LLM 本身就擅長理解內容語意，讓它自己判斷類型比你寫 regex 或 rule 準確得多，而且新類型只要在 `prompts.py` 加一段策略就好，不用動任何 infra。
+
 ## 實際落地：三層觸發架構
 
 實際部署時，GEO 內容的產生會有三條路徑並存：

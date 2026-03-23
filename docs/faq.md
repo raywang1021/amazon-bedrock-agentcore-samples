@@ -51,3 +51,20 @@ sanitize does three things:
 3. **Redact known injection patterns** — `ignore all previous instructions`, `[INST]`, `<<SYS>>`, etc.
 
 Protected targets: directly protects the LLM from hijacking; ultimately protects AI search engines and their users who receive GEO content via CloudFront. Any system feeding untrusted external content into an LLM needs this layer of protection.
+
+
+## How is AgentCore different from agent frameworks like OpenClaw?
+
+The core idea is similar — you define a set of capabilities (tools/skills), and the agent decides how to combine them based on input to achieve the goal, rather than following a hardcoded workflow. This is a shared trend across the AI agent space: moving from "hardcoded flows" to "agent-driven orchestration."
+
+The difference lies in positioning and deployment context:
+
+| | OpenClaw | AgentCore |
+|---|---------|-----------|
+| Deployment | Self-hosted (local machine, VPS, Raspberry Pi) | AWS Managed Service |
+| Primary scenario | Personal assistant, messaging automation (Telegram, Discord, WhatsApp) | Enterprise production workloads |
+| Core concepts | Skills + Heartbeat + Memory + Channels | Runtime + Memory + Identity + Gateway + Observability |
+| Security | Self-managed | IAM, OAC, Bedrock Guardrail, execution roles |
+| Scalability | Single machine | Serverless auto-scaling, session isolation |
+
+In short: OpenClaw is great for personal agents running on your own machine; AgentCore is built for enterprise scenarios that need production-grade infrastructure. This project uses AgentCore because GEO content is distributed at scale via CloudFront CDN, requiring managed runtime, observability, and native integration with AWS services (DynamoDB, Lambda, CloudFront).
