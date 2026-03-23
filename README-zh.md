@@ -84,6 +84,7 @@ python scripts/query_scores.py --url /path    # 查詢特定 URL
 - [架構說明](docs/architecture-zh.md) — Edge Serving 架構、DDB Schema、Response Headers、HTML 驗證、多租戶
 - [分數追蹤](docs/score-tracking-zh.md) — GEO 改寫前後分數記錄與成效分析
 - [FAQ](docs/faq-zh.md) — 為什麼用 Agent、Tool 呼叫流程、@tool vs MCP
+- [開發路線圖](docs/roadmap-zh.md) — 開發進度與待辦事項
 
 ## Troubleshooting
 

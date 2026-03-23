@@ -84,6 +84,7 @@ python scripts/query_scores.py --url /path    # Query specific URL
 - [Architecture](docs/architecture.md) — Edge Serving architecture, DDB Schema, Response Headers, HTML validation, multi-tenant
 - [Score Tracking](docs/score-tracking.md) — Pre/post-rewrite GEO score recording and optimization analysis
 - [FAQ](docs/faq.md) — Why use an Agent, tool invocation flow, @tool vs MCP
+- [Roadmap](docs/roadmap.md) — Development progress and backlog
 
 ## Troubleshooting
 
