@@ -21,25 +21,35 @@ MISSING=""
 
 if ! command -v python3 &>/dev/null; then
     MISSING="${MISSING}  - python3 (>= 3.10)\n"
+    MISSING="${MISSING}      macOS:  brew install python@3.10\n"
+    MISSING="${MISSING}      Linux:  sudo apt install python3.10  (or yum/dnf)\n\n"
 fi
 
 if ! command -v node &>/dev/null; then
     MISSING="${MISSING}  - node (>= 20) — required by AgentCore toolkit\n"
+    MISSING="${MISSING}      macOS:  brew install node@20\n"
+    MISSING="${MISSING}      Linux:  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs\n"
+    MISSING="${MISSING}      Any:    https://nodejs.org/en/download\n\n"
 fi
 
 if ! command -v aws &>/dev/null; then
     MISSING="${MISSING}  - aws CLI (v2)\n"
+    MISSING="${MISSING}      macOS:  brew install awscli\n"
+    MISSING="${MISSING}      Linux:  curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o awscliv2.zip && unzip awscliv2.zip && sudo ./aws/install\n"
+    MISSING="${MISSING}      Docs:   https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html\n\n"
 fi
 
 if ! command -v sam &>/dev/null; then
     MISSING="${MISSING}  - sam CLI — required for Lambda/DDB deployment\n"
+    MISSING="${MISSING}      macOS:  brew install aws-sam-cli\n"
+    MISSING="${MISSING}      Linux:  pip install aws-sam-cli\n"
+    MISSING="${MISSING}      Docs:   https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html\n\n"
 fi
 
 if [ -n "$MISSING" ]; then
     echo "Missing required tools:"
     echo ""
     printf "$MISSING"
-    echo ""
     echo "Install them and re-run ./setup.sh"
     exit 1
 fi
