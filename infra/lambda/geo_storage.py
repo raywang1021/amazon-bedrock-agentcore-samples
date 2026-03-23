@@ -36,10 +36,79 @@ table = dynamodb.Table(TABLE_NAME)
 
 
 def handler(event, context):
-    """Store GEO content in DynamoDB."""
+    """Store GEO content or update scores in DynamoDB."""
     # Support both direct dict and JSON string payload
     if isinstance(event, str):
         event = json.loads(event)
+
+    action = event.get("action", "store")
+
+    if action == "update_scores":
+        return _update_scores(event)
+
+    return _store_content(event)
+
+
+def _update_scores(event):
+    """Update only score fields on an existing DDB record (no overwrite)."""
+    url_path = event.get("url_path")
+    if not url_path:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "url_path is required"}),
+        }
+
+    host = event.get("host", "")
+    ddb_key = f"{host}#{url_path}" if host else url_path
+
+    original_score = event.get("original_score")
+    geo_score = event.get("geo_score")
+    if not original_score and not geo_score:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "at least one score field is required"}),
+        }
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_parts = ["#u = :now"]
+    attr_names = {"#u": "updated_at"}
+    attr_values = {":now": now}
+
+    if original_score:
+        update_parts.append("original_score = :os")
+        attr_values[":os"] = original_score
+
+    if geo_score:
+        update_parts.append("geo_score = :gs")
+        attr_values[":gs"] = geo_score
+
+    if original_score and geo_score:
+        if "overall_score" in original_score and "overall_score" in geo_score:
+            from decimal import Decimal
+            improvement = Decimal(str(geo_score["overall_score"])) - Decimal(str(original_score["overall_score"]))
+            update_parts.append("score_improvement = :si")
+            attr_values[":si"] = improvement
+
+    try:
+        table.update_item(
+            Key={"url_path": ddb_key},
+            UpdateExpression="SET " + ", ".join(update_parts),
+            ExpressionAttributeNames=attr_names,
+            ExpressionAttributeValues=attr_values,
+        )
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"status": "scores_updated", "ddb_key": ddb_key}),
+        }
+    except Exception as e:
+        print(f"Score update failed: {e}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)}),
+        }
+
+
+def _store_content(event):
 
     url_path = event.get("url_path")
     geo_content = event.get("geo_content")

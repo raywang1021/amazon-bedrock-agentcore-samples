@@ -26,8 +26,7 @@ AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 def _evaluate_content_score(content: str, label: str) -> dict:
     """Evaluate content and return score dict with overall_score and dimensions."""
-    from model.load import MODEL_ID, AWS_REGION
-    from strands.models import BedrockModel
+    from model.load import load_model
     from strands import Agent
     import json as _json
     import re as _re
@@ -48,7 +47,7 @@ Return ONLY a JSON object with this structure:
   }
 }"""
 
-    model = BedrockModel(model_id=MODEL_ID, region_name=AWS_REGION, temperature=0.1)
+    model = load_model(temperature=0.1)
     evaluator = Agent(model=model, system_prompt=eval_prompt, tools=[])
     result = str(evaluator(f"Evaluate ({label}):\n\n{content[:8000]}"))
 
@@ -159,13 +158,18 @@ Do NOT wrap your output in ```html or ``` markers."""
             original_score = fut_original.result(timeout=60)
             geo_score = fut_geo.result(timeout=60)
 
-        # Update DDB with scores via Storage Lambda (overwrite same key)
-        payload["original_score"] = original_score
-        payload["geo_score"] = geo_score
+        # Update DDB with scores only (don't overwrite the full record)
+        score_payload = {
+            "action": "update_scores",
+            "url_path": url_path,
+            "host": parsed.netloc,
+            "original_score": original_score,
+            "geo_score": geo_score,
+        }
         lambda_client.invoke(
             FunctionName=GEO_STORAGE_FUNCTION_NAME,
             InvocationType="Event",  # async — fire and forget
-            Payload=json.dumps(payload),
+            Payload=json.dumps(score_payload),
         )
 
         score_improvement = geo_score.get("overall_score", 0) - original_score.get("overall_score", 0)

@@ -87,7 +87,8 @@ def _fetch_and_prepare(url: str, user_agent: str = DEFAULT_UA) -> str | None:
     """
     import requests as _requests
     try:
-        resp = _requests.get(url, headers={"User-Agent": user_agent}, timeout=30)
+        headers = {"User-Agent": user_agent}
+        resp = _requests.get(url, headers=headers, timeout=30)
         resp.raise_for_status()
     except Exception:
         return None
@@ -96,7 +97,18 @@ def _fetch_and_prepare(url: str, user_agent: str = DEFAULT_UA) -> str | None:
     if resp.headers.get("X-GEO-Optimized") == "true":
         text = resp.text
     else:
-        text = fetch_page_text(url, user_agent=user_agent)
+        # Extract text from HTML using trafilatura (or fallback)
+        try:
+            import trafilatura
+            text = trafilatura.extract(
+                resp.text,
+                include_links=False,
+                with_metadata=True,
+            )
+            if not text:
+                text = resp.text
+        except ImportError:
+            text = resp.text
 
     text = sanitize_web_content(text)
     if len(text) > MAX_CHARS:
@@ -108,12 +120,12 @@ def _evaluate(text: str, label: str, url: str) -> dict:
     """Run LLM evaluation on text, return parsed score dict.
 
     Uses temperature=0.1 for consistent, reproducible scoring.
+    Guardrail is applied when configured via load_model().
     """
-    from model.load import MODEL_ID, AWS_REGION
-    from strands.models import BedrockModel
+    from model.load import load_model
     from strands import Agent
 
-    model = BedrockModel(model_id=MODEL_ID, region_name=AWS_REGION, temperature=0.1)
+    model = load_model(temperature=0.1)
     evaluator = Agent(model=model, system_prompt=EVAL_SYSTEM_PROMPT, tools=[])
     prompt = f"Evaluate this web page content ({label}) from {url}:\n\n{text}"
     result = str(evaluator(prompt))
