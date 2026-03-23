@@ -1,6 +1,6 @@
 # Architecture
 
-> [繁體中文版](architecture-zh.md)
+> [繁體中文版](architecture.zh-TW.md)
 
 ## System Overview
 

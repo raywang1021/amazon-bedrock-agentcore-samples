@@ -1,6 +1,6 @@
 # FAQ
 
-> [繁體中文版](faq-zh.md)
+> [繁體中文版](faq.zh-TW.md)
 
 ## Why use an Agent instead of a Python script calling Claude directly?
 

@@ -79,12 +79,12 @@ python scripts/query_scores.py --url /path    # 查詢特定 URL
 
 ## 文件
 
-- [為什麼用 AgentCore](docs/why-agentcore-zh.md) — AgentCore vs 直接呼叫 LLM、Tool Selection vs MCP、三層觸發架構
-- [部署指南](docs/deployment-zh.md) — AgentCore、SAM、CloudFront 部署步驟
-- [架構說明](docs/architecture-zh.md) — Edge Serving 架構、DDB Schema、Response Headers、HTML 驗證、多租戶
-- [分數追蹤](docs/score-tracking-zh.md) — GEO 改寫前後分數記錄與成效分析
-- [FAQ](docs/faq-zh.md) — 為什麼用 Agent、Tool 呼叫流程、@tool vs MCP
-- [開發路線圖](docs/roadmap-zh.md) — 開發進度與待辦事項
+- [為什麼用 AgentCore](docs/why-agentcore.zh-TW.md) — AgentCore vs 直接呼叫 LLM、Tool Selection vs MCP、三層觸發架構
+- [部署指南](docs/deployment.zh-TW.md) — AgentCore、SAM、CloudFront 部署步驟
+- [架構說明](docs/architecture.zh-TW.md) — Edge Serving 架構、DDB Schema、Response Headers、HTML 驗證、多租戶
+- [分數追蹤](docs/score-tracking.zh-TW.md) — GEO 改寫前後分數記錄與成效分析
+- [FAQ](docs/faq.zh-TW.md) — 為什麼用 Agent、Tool 呼叫流程、@tool vs MCP
+- [開發路線圖](docs/roadmap.zh-TW.md) — 開發進度與待辦事項
 
 ## Troubleshooting
 

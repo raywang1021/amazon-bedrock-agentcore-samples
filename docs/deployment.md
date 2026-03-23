@@ -1,6 +1,6 @@
 # Deployment Guide
 
-> [繁體中文版](deployment-zh.md)
+> [繁體中文版](deployment.zh-TW.md)
 
 ## Required IAM Permissions for Deployer
 

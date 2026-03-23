@@ -227,6 +227,6 @@ aws lambda get-function-configuration \
 ## 支援
 
 如有問題，請查看：
-- [分數追蹤功能文檔](score-tracking-zh.md)
-- [架構說明](architecture-zh.md)
-- [FAQ](faq-zh.md)
+- [分數追蹤功能文檔](score-tracking.zh-TW.md)
+- [架構說明](architecture.zh-TW.md)
+- [FAQ](faq.zh-TW.md)

@@ -1,6 +1,6 @@
 # GEO Score Tracking - Deployment Guide
 
-> [繁體中文版](score-tracking-deployment-zh.md)
+> [繁體中文版](score-tracking-deployment.zh-TW.md)
 
 ## Pre-Deployment Checklist
 

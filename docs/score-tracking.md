@@ -1,6 +1,6 @@
 # GEO Score Tracking
 
-> [繁體中文版](score-tracking-zh.md)
+> [繁體中文版](score-tracking.zh-TW.md)
 
 ## Overview
 

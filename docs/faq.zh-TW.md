@@ -14,7 +14,7 @@
 
 代價是多一次 Claude 呼叫來做意圖判斷。如果你的場景不需要這些彈性，直接用 script 是更好的選擇。
 
-詳細的呼叫流程圖請參考 [架構說明](architecture-zh.md#agent-tool-呼叫流程)。
+詳細的呼叫流程圖請參考 [架構說明](architecture.zh-TW.md#agent-tool-呼叫流程)。
 
 ## Strands `@tool` vs MCP
 

@@ -1,6 +1,6 @@
 # Why AgentCore?
 
-> [繁體中文版](why-agentcore-zh.md)
+> [繁體中文版](why-agentcore.zh-TW.md)
 
 ## What is AgentCore
 

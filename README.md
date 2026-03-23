@@ -2,7 +2,7 @@
 
 Generative Engine Optimization (GEO) agent deployed via Bedrock AgentCore, with CloudFront OAC + Lambda Function URL for edge serving. AI search engine crawlers receive GEO-optimized content automatically.
 
-> [繁體中文版 README](README-zh.md)
+> [繁體中文版 README](README.zh-TW.md)
 
 ## Features
 

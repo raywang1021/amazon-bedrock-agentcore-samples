@@ -1,6 +1,6 @@
 # GEO Agent — Roadmap
 
-> [繁體中文版](roadmap-zh.md)
+> [繁體中文版](roadmap.zh-TW.md)
 
 ## Completed
 
