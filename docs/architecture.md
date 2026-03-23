@@ -86,6 +86,7 @@ The system supports Bedrock Guardrail, enabled via environment variables:
 
 When `BEDROCK_GUARDRAIL_ID` is set, all BedrockModel instances created via `load_model()` automatically apply the guardrail.
 This includes the main agent, rewrite sub-agent, and score evaluation sub-agent.
+`load_model()` also accepts an optional `temperature` parameter (e.g., `load_model(temperature=0.1)` for scoring consistency).
 
 Guardrail capabilities:
 - Filter inappropriate content (hate speech, violence, explicit content, etc.)
@@ -240,7 +241,7 @@ store_geo_content(url)
     └── ThreadPoolExecutor (parallel scoring)
         ├── _evaluate_content_score(original, "original") → Bedrock LLM (+Guardrail)
         └── _evaluate_content_score(geo, "geo-optimized") → Bedrock LLM (+Guardrail)
-            └── Storage Lambda → DDB (async score update)
+            └── Storage Lambda → DDB (update_scores action, update_item only)
 ```
 
 ### evaluate_geo_score — Three-Perspective Scoring
@@ -327,4 +328,4 @@ CloudFront OAC + Lambda Function URL (`AuthType: AWS_IAM`):
 |--------|---------|-------|
 | `geo-content-handler` | Reads DDB and returns GEO content | Function URL + OAC, multi-tenant |
 | `geo-content-generator` | Async invocation of AgentCore | Triggered by handler |
-| `geo-content-storage` | Agent writes to DDB | Includes HTML validation |
+| `geo-content-storage` | Agent writes to DDB | Includes HTML validation, supports `update_scores` action for score-only updates |

@@ -86,6 +86,7 @@ Agent (store_geo_content)
 
 設定 `BEDROCK_GUARDRAIL_ID` 後，所有透過 `load_model()` 建立的 BedrockModel 都會自動套用 guardrail。
 這包含主 agent、rewrite sub-agent、score evaluation sub-agent。
+`load_model()` 也支援可選的 `temperature` 參數（例如 `load_model(temperature=0.1)` 用於評分一致性）。
 
 Guardrail 可用於：
 - 過濾不當內容（仇恨言論、暴力、色情等）
@@ -240,7 +241,7 @@ store_geo_content(url)
     └── ThreadPoolExecutor（並行評分）
         ├── _evaluate_content_score(original, "original") → Bedrock LLM (+Guardrail)
         └── _evaluate_content_score(geo, "geo-optimized") → Bedrock LLM (+Guardrail)
-            └── Storage Lambda → DDB（async 更新分數）
+            └── Storage Lambda → DDB（update_scores action，僅 update_item）
 ```
 
 ### evaluate_geo_score — 三視角評分
@@ -327,4 +328,4 @@ CloudFront OAC + Lambda Function URL（`AuthType: AWS_IAM`）：
 |--------|------|------|
 | `geo-content-handler` | 讀取 DDB 回傳 GEO 內容 | Function URL + OAC，多租戶 |
 | `geo-content-generator` | 非同步呼叫 AgentCore | 由 handler 觸發 |
-| `geo-content-storage` | Agent 寫入 DDB | 含 HTML 驗證 |
+| `geo-content-storage` | Agent 寫入 DDB | 含 HTML 驗證，支援 `update_scores` action 僅更新分數欄位 |
