@@ -112,33 +112,61 @@ aws cloudfront publish-function \
   --if-match <NEW_ETAG>
 ```
 
-### 多站台部署（共用 DynamoDB）
+### 新增站台（多租戶）
 
-DDB key 格式為 `{host}#{path}[?query]`，天生支援多租戶。多個站台共用同一張 DDB table。
+Backend（Lambda + DynamoDB + OAC）只需部署一次。Lambda permission 使用 wildcard `distribution/*`，同帳號下所有 CloudFront distribution 都能呼叫 handler，不需要改 Lambda。
 
-#### 情境 1：全新 CloudFront Distribution
+新增站台只需要現有 backend 的 Function URL domain 和 OAC ID：
 
 ```bash
-# Step 1: 部署 Lambda backend
-sam deploy --stack-name geo-backend-site \
-  -t infra/template.yaml \
-  --parameter-overrides \
-    TableName=geo-content \
-    DefaultOriginHost=www.example.com
+# 1. 取得現有 Function URL domain 和 OAC ID
+aws lambda get-function-url-config \
+  --function-name geo-content-handler --region us-east-1 \
+  --query 'FunctionUrl' --output text
 
-# Step 2: 建立 CloudFront distribution
-sam deploy --stack-name geo-cf-site \
-  -t infra/cloudfront-distribution.yaml \
+aws cloudfront list-origin-access-controls \
+  --query "OriginAccessControlList.Items[?Name=='geo-lambda-oac'].Id" \
+  --output text
+
+# 2. 一行指令部署新的 CloudFront distribution
+sam deploy -t infra/cloudfront-distribution.yaml \
+  --stack-name geo-cf-<SITE_NAME> \
+  --region us-east-1 \
+  --resolve-s3 \
+  --capabilities CAPABILITY_IAM \
   --parameter-overrides \
-    OriginDomain=www.example.com \
-    GeoFunctionUrlDomain=<FunctionUrl domain from Step 1> \
-    GeoOacId=<OacId from Step 1>
+    OriginDomain=<ORIGIN_DOMAIN> \
+    GeoFunctionUrlDomain=<FUNCTION_URL_DOMAIN> \
+    GeoOacId=<OAC_ID>
 ```
 
-#### 情境 2：既有 CloudFront Distribution
+這會建立：
+- 新的 CloudFront distribution，default origin 指向 `<ORIGIN_DOMAIN>`
+- `geo-lambda-origin` 指向現有的 `geo-content-handler` Function URL + OAC
+- 專屬的 CFF 做 AI bot 偵測和 origin 切換
+
+DDB key 格式 `{host}#{path}` 天然隔離各 distribution 的資料，不需要改 DDB table。
+
+範例 — 新增 `24h.pchome.com.tw`：
 
 ```bash
-sam deploy --stack-name geo-backend-site \
+sam deploy -t infra/cloudfront-distribution.yaml \
+  --stack-name geo-cf-pchome \
+  --region us-east-1 \
+  --resolve-s3 \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    OriginDomain=24h.pchome.com.tw \
+    GeoFunctionUrlDomain=vb2e25fi4mxfcsaiestqooysca0rjfhp.lambda-url.us-east-1.on.aws \
+    GeoOacId=E35SJUFLDEE9PJ
+```
+
+#### 掛載到既有 CloudFront Distribution
+
+如果你已經有 CloudFront distribution，想加上 GEO 功能（而非建立新的），在 backend template 使用 `SetupCfOrigin=true`：
+
+```bash
+sam deploy --stack-name geo-backend \
   -t infra/template.yaml \
   --parameter-overrides \
     TableName=geo-content \
@@ -149,23 +177,7 @@ sam deploy --stack-name geo-backend-site \
     CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
 
-`SetupCfOrigin=true` 會自動在既有 distribution 加上 `geo-lambda-origin` origin + OAC + CFF。
-
-#### 新增站台（共用 DDB table）
-
-第二組以上的站台設 `CreateTable=false`：
-
-```bash
-sam deploy --stack-name geo-backend-linetoday \
-  -t infra/template.yaml \
-  --parameter-overrides \
-    TableName=geo-content \
-    CreateTable=false \
-    DefaultOriginHost=today.line.me \
-    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID_B> \
-    SetupCfOrigin=true \
-    CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
-```
+這會自動在既有 distribution 加上 `geo-lambda-origin` origin + OAC + CFF。
 
 ## llms.txt 存入
 

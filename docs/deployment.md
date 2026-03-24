@@ -113,33 +113,61 @@ aws cloudfront publish-function \
   --if-match <NEW_ETAG>
 ```
 
-### Multi-Site Deployment (Shared DynamoDB)
+### Adding a New Site (Multi-Tenant)
 
-DDB key format is `{host}#{path}[?query]`, natively supporting multi-tenancy. Multiple sites share a single DDB table.
+The backend (Lambda + DynamoDB + OAC) only needs to be deployed once. Lambda permission uses wildcard `distribution/*`, so all CloudFront distributions in the same account can invoke the handler without any Lambda changes.
 
-#### Scenario 1: New CloudFront Distribution
+To add a new site, you only need the Function URL domain and OAC ID from the existing backend:
 
 ```bash
-# Step 1: Deploy Lambda backend
-sam deploy --stack-name geo-backend-site \
-  -t infra/template.yaml \
-  --parameter-overrides \
-    TableName=geo-content \
-    DefaultOriginHost=www.example.com
+# 1. Get existing Function URL domain and OAC ID
+aws lambda get-function-url-config \
+  --function-name geo-content-handler --region us-east-1 \
+  --query 'FunctionUrl' --output text
 
-# Step 2: Create CloudFront distribution
-sam deploy --stack-name geo-cf-site \
-  -t infra/cloudfront-distribution.yaml \
+aws cloudfront list-origin-access-controls \
+  --query "OriginAccessControlList.Items[?Name=='geo-lambda-oac'].Id" \
+  --output text
+
+# 2. Deploy a new CloudFront distribution (one command)
+sam deploy -t infra/cloudfront-distribution.yaml \
+  --stack-name geo-cf-<SITE_NAME> \
+  --region us-east-1 \
+  --resolve-s3 \
+  --capabilities CAPABILITY_IAM \
   --parameter-overrides \
-    OriginDomain=www.example.com \
-    GeoFunctionUrlDomain=<FunctionUrl domain from Step 1> \
-    GeoOacId=<OacId from Step 1>
+    OriginDomain=<ORIGIN_DOMAIN> \
+    GeoFunctionUrlDomain=<FUNCTION_URL_DOMAIN> \
+    GeoOacId=<OAC_ID>
 ```
 
-#### Scenario 2: Existing CloudFront Distribution
+This creates:
+- A new CloudFront distribution with `<ORIGIN_DOMAIN>` as default origin
+- `geo-lambda-origin` pointing to the existing `geo-content-handler` Function URL + OAC
+- A dedicated CFF for AI bot detection and origin switching
+
+DDB key format `{host}#{path}` naturally isolates data per distribution. No DDB table changes needed.
+
+Example — adding `24h.pchome.com.tw`:
 
 ```bash
-sam deploy --stack-name geo-backend-site \
+sam deploy -t infra/cloudfront-distribution.yaml \
+  --stack-name geo-cf-pchome \
+  --region us-east-1 \
+  --resolve-s3 \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    OriginDomain=24h.pchome.com.tw \
+    GeoFunctionUrlDomain=vb2e25fi4mxfcsaiestqooysca0rjfhp.lambda-url.us-east-1.on.aws \
+    GeoOacId=E35SJUFLDEE9PJ
+```
+
+#### Attaching to an Existing CloudFront Distribution
+
+If you already have a CloudFront distribution and want to add GEO capability to it (instead of creating a new one), use `SetupCfOrigin=true` in the backend template:
+
+```bash
+sam deploy --stack-name geo-backend \
   -t infra/template.yaml \
   --parameter-overrides \
     TableName=geo-content \
@@ -150,23 +178,7 @@ sam deploy --stack-name geo-backend-site \
     CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
 ```
 
-`SetupCfOrigin=true` automatically adds `geo-lambda-origin` origin + OAC + CFF to the existing distribution.
-
-#### Adding More Sites (Shared DDB Table)
-
-For the second site onward, set `CreateTable=false`:
-
-```bash
-sam deploy --stack-name geo-backend-linetoday \
-  -t infra/template.yaml \
-  --parameter-overrides \
-    TableName=geo-content \
-    CreateTable=false \
-    DefaultOriginHost=today.line.me \
-    CloudFrontDistributionArn=arn:aws:cloudfront::<ACCOUNT>:distribution/<DIST_ID_B> \
-    SetupCfOrigin=true \
-    CffArn=arn:aws:cloudfront::<ACCOUNT>:function/geo-bot-router-oac
-```
+This automatically adds `geo-lambda-origin` origin + OAC + CFF to the existing distribution.
 
 ## llms.txt Storage
 
