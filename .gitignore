@@ -49,6 +49,9 @@ samconfig.toml
 generated-diagrams/
 geo-architecture-v2.png
 
+# Internal screenshots (not for public distribution)
+docs/internal-screenshots/
+
 # OS
 .DS_Store
 Thumbs.db
