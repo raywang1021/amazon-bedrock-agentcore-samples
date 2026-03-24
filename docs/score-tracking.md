@@ -15,10 +15,19 @@ When using the `store_geo_content` tool, the system:
 - Calculates the score improvement
 
 ### 2. Scoring Dimensions
-Each evaluation includes three dimensions (0-100):
-- **cited_sources**: Whether content cites sources, research, or references
-- **statistical_addition**: Whether it includes specific data, percentages, statistics
-- **authoritative**: Whether it has clear author attribution and authority signals (E-E-A-T)
+Each evaluation includes five dimensions (0-100), weighted to reflect AI search engine ranking priorities:
+
+| Dimension | Weight | What it measures |
+|-----------|--------|-----------------|
+| **authority** | 25% | E-E-A-T signals: author credentials, organization, inline citations |
+| **freshness** | 20% | Temporal signals: publish/update dates, timestamps on data |
+| **relevance** | 30% | Information density: topic coverage, specificity, completeness |
+| **structure** | 15% | Machine-parsability: heading hierarchy, lists, schema markup, FAQ |
+| **readability** | 10% | Text quality: paragraph length, visual hierarchy, noise ratio |
+
+`overall_score = authority×0.25 + freshness×0.20 + relevance×0.30 + structure×0.15 + readability×0.10`
+
+Scoring is strict: most raw web content scores 30-60, only well-optimized content scores above 70.
 
 ### 3. DynamoDB Storage Structure
 
@@ -29,22 +38,26 @@ Items stored in DynamoDB include:
   "url_path": "/world/3149600",
   "geo_content": "<html>...</html>",
   "original_score": {
-    "overall_score": 45,
+    "overall_score": 38,
     "dimensions": {
-      "cited_sources": {"score": 40},
-      "statistical_addition": {"score": 35},
-      "authoritative": {"score": 60}
+      "authority": {"score": 45},
+      "freshness": {"score": 50},
+      "relevance": {"score": 35},
+      "structure": {"score": 20},
+      "readability": {"score": 30}
     }
   },
   "geo_score": {
-    "overall_score": 78,
+    "overall_score": 72,
     "dimensions": {
-      "cited_sources": {"score": 80},
-      "statistical_addition": {"score": 75},
-      "authoritative": {"score": 80}
+      "authority": {"score": 70},
+      "freshness": {"score": 75},
+      "relevance": {"score": 80},
+      "structure": {"score": 65},
+      "readability": {"score": 70}
     }
   },
-  "score_improvement": 33,
+  "score_improvement": 34,
   "generation_duration_ms": 5432,
   "created_at": "2026-03-16T10:30:00Z",
   "updated_at": "2026-03-16T10:30:00Z"
@@ -163,8 +176,9 @@ for item in sorted_items[:10]:
 
 1. **Scoring cost**: Each content store triggers two LLM scoring calls (pre and post rewrite), adding processing time and cost
 2. **Scoring consistency**: Uses temperature=0.1 for consistent and reproducible scores
-3. **Content truncation**: Content is truncated to 8000 characters during scoring to control costs
+3. **Content truncation**: Content is truncated to 12,000 characters during scoring to control costs
 4. **DynamoDB capacity**: Score data increases each item's size; ensure sufficient storage capacity
+5. **Backward compatibility**: Old records with 3-dimension scores (cited_sources, statistical_addition, authoritative) remain valid; new records use 5 dimensions
 
 ## Scores Dashboard
 
@@ -194,5 +208,4 @@ The dashboard is served by `geo-content-handler` Lambda when `?action=scores` is
 ## Future Improvements
 
 - Batch scoring and comparison support
-- Additional scoring dimensions (readability, structure, etc.)
 - CloudWatch metrics integration

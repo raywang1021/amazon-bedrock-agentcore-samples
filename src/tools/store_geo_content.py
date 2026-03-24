@@ -25,31 +25,78 @@ AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 
 def _evaluate_content_score(content: str, label: str) -> dict:
-    """Evaluate content and return score dict with overall_score and dimensions."""
+    """Evaluate content using 5 weighted dimensions aligned with AI search engine ranking signals.
+
+    Dimensions (weights):
+      - authority (0.25): E-E-A-T signals, author/org attribution, source credibility
+      - freshness (0.20): Date stamps, update markers, temporal relevance
+      - relevance (0.30): Semantic completeness, topic coverage, information density
+      - structure (0.15): HTML hierarchy, schema markup, machine-parsability
+      - readability (0.10): Text-to-noise ratio, paragraph length, visual hierarchy
+    """
     from model.load import load_model
     from strands import Agent
     import json as _json
     import re as _re
 
-    eval_prompt = """You are a GEO scoring expert. Evaluate this content across three dimensions:
+    eval_prompt = """You are an AI search engine content ranking system. You evaluate web content
+the way an AI crawler (GPTBot, ClaudeBot, PerplexityBot) would assess its value for citation
+in AI-generated answers.
 
-1. cited_sources (0-100): Are claims backed by sources, studies, or references?
-2. statistical_addition (0-100): Does it include specific numbers, data points?
-3. authoritative (0-100): Is there clear author attribution and E-E-A-T signals?
+Score this content across 5 dimensions. Be strict and precise — most web content scores 30-60,
+only exceptional content scores above 80. Do NOT be generous.
 
-Return ONLY a JSON object with this structure:
+## Dimensions
+
+1. **authority** (0-100): E-E-A-T signals
+   - 80+: Named author with credentials, organization identified, multiple inline citations to authoritative sources
+   - 50-79: Some author/org info, a few citations but not consistent
+   - 30-49: Organization mentioned but no author, minimal citations
+   - <30: Anonymous, no citations, no authority signals
+
+2. **freshness** (0-100): Temporal signals
+   - 80+: Clear publish date + update date, content is current, timestamps on data points
+   - 50-79: Publish date present but no update date, or dates are old
+   - 30-49: Vague time references ("recently"), no explicit dates
+   - <30: No temporal signals at all
+
+3. **relevance** (0-100): Information density and completeness
+   - 80+: Comprehensive topic coverage, specific data points, answers likely user questions, includes context
+   - 50-79: Covers main topic but lacks depth or specificity
+   - 30-49: Surface-level coverage, generic statements, filler content
+   - <30: Off-topic, thin content, mostly navigation/boilerplate
+
+4. **structure** (0-100): Machine-parsability
+   - 80+: Clear heading hierarchy (H1-H3), lists/tables, schema markup (JSON-LD), FAQ sections, key-value pairs
+   - 50-79: Some headings and lists, but inconsistent hierarchy
+   - 30-49: Minimal structure, wall of text with occasional headings
+   - <30: No structure, single block of text
+
+5. **readability** (0-100): Human + machine readability
+   - 80+: Short paragraphs (2-4 sentences), clear topic sentences, good text-to-noise ratio, visual hierarchy
+   - 50-79: Reasonable paragraphs but some long blocks, decent formatting
+   - 30-49: Long paragraphs, poor formatting, high noise ratio
+   - <30: Unreadable, excessive ads/navigation mixed with content
+
+## Output
+
+Return ONLY a JSON object:
 {
-  "overall_score": <0-100>,
+  "overall_score": <weighted: authority*0.25 + freshness*0.20 + relevance*0.30 + structure*0.15 + readability*0.10>,
   "dimensions": {
-    "cited_sources": {"score": <0-100>},
-    "statistical_addition": {"score": <0-100>},
-    "authoritative": {"score": <0-100>}
+    "authority": {"score": <0-100>},
+    "freshness": {"score": <0-100>},
+    "relevance": {"score": <0-100>},
+    "structure": {"score": <0-100>},
+    "readability": {"score": <0-100>}
   }
-}"""
+}
+
+Calculate overall_score using the exact weights above. Round to nearest integer."""
 
     model = load_model(temperature=0.1)
     evaluator = Agent(model=model, system_prompt=eval_prompt, tools=[])
-    result = str(evaluator(f"Evaluate ({label}):\n\n{content[:8000]}"))
+    result = str(evaluator(f"Evaluate ({label}):\n\n{content[:12000]}"))
 
     try:
         json_match = _re.search(r'\{.*\}', result, _re.DOTALL)

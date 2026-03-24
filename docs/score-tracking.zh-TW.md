@@ -15,10 +15,19 @@
 - 計算分數提升幅度
 
 ### 2. 評分維度
-每次評分包含三個維度（0-100 分）：
-- **cited_sources**: 內容是否有引用來源、研究或參考資料
-- **statistical_addition**: 是否包含具體數據、百分比、統計資料
-- **authoritative**: 是否有明確的作者署名和權威性信號（E-E-A-T）
+每次評分包含五個維度（0-100 分），權重反映 AI 搜尋引擎的排名優先順序：
+
+| 維度 | 權重 | 評估內容 |
+|------|------|---------|
+| **authority** | 25% | E-E-A-T 信號：作者資歷、組織、行內引用 |
+| **freshness** | 20% | 時間信號：發布/更新日期、資料時間戳 |
+| **relevance** | 30% | 資訊密度：主題覆蓋度、具體性、完整性 |
+| **structure** | 15% | 機器可解析性：標題層級、列表、schema markup、FAQ |
+| **readability** | 10% | 文字品質：段落長度、視覺層次、噪音比 |
+
+`overall_score = authority×0.25 + freshness×0.20 + relevance×0.30 + structure×0.15 + readability×0.10`
+
+評分標準嚴格：大多數原始網頁內容得分 30-60，只有優化良好的內容才會超過 70。
 
 ### 3. DynamoDB 儲存結構
 
@@ -29,22 +38,26 @@
   "url_path": "/world/3149600",
   "geo_content": "<html>...</html>",
   "original_score": {
-    "overall_score": 45,
+    "overall_score": 38,
     "dimensions": {
-      "cited_sources": {"score": 40},
-      "statistical_addition": {"score": 35},
-      "authoritative": {"score": 60}
+      "authority": {"score": 45},
+      "freshness": {"score": 50},
+      "relevance": {"score": 35},
+      "structure": {"score": 20},
+      "readability": {"score": 30}
     }
   },
   "geo_score": {
-    "overall_score": 78,
+    "overall_score": 72,
     "dimensions": {
-      "cited_sources": {"score": 80},
-      "statistical_addition": {"score": 75},
-      "authoritative": {"score": 80}
+      "authority": {"score": 70},
+      "freshness": {"score": 75},
+      "relevance": {"score": 80},
+      "structure": {"score": 65},
+      "readability": {"score": 70}
     }
   },
-  "score_improvement": 33,
+  "score_improvement": 34,
   "generation_duration_ms": 5432,
   "created_at": "2026-03-16T10:30:00Z",
   "updated_at": "2026-03-16T10:30:00Z"
@@ -164,8 +177,9 @@ for item in sorted_items[:10]:
 
 1. **評分成本**: 每次儲存內容會進行兩次 LLM 評分調用（改寫前後各一次），會增加處理時間和成本
 2. **評分一致性**: 使用 temperature=0.1 來確保評分的一致性和可重現性
-3. **內容截斷**: 評分時會將內容截斷至 8000 字元以控制成本
+3. **內容截斷**: 評分時會將內容截斷至 12,000 字元以控制成本
 4. **DynamoDB 容量**: 分數資料會增加每個項目的大小，請確保有足夠的儲存容量
+5. **向下相容**: 舊的 3 維度分數記錄（cited_sources、statistical_addition、authoritative）仍然有效；新記錄使用 5 維度
 
 ## 分數儀表板
 
@@ -195,5 +209,4 @@ https://<cf-domain>/?ua=genaibot&action=scores
 ## 未來改進方向
 
 - 支援批次評分和比較
-- 增加更多評分維度（如可讀性、結構化程度等）
 - 整合 CloudWatch 指標追蹤

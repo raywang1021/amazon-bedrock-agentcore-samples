@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEO Content - DynamoDB Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+      color: #38bdf8;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .controls input,
+    .controls select,
+    .controls button {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 0.85rem;
+    }
+
+    .controls input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .controls button {
+      background: #2563eb;
+      border-color: #2563eb;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .controls button:hover {
+      background: #1d4ed8;
+    }
+
+    .controls button.danger {
+      background: #dc2626;
+      border-color: #dc2626;
+    }
+
+    #status {
+      color: #94a3b8;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    th,
+    td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid #1e293b;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #1e293b;
+      color: #94a3b8;
+      cursor: pointer;
+      user-select: none;
+      position: sticky;
+      top: 0;
+    }
+
+    th:hover {
+      color: #38bdf8;
+    }
+
+    th .arrow {
+      margin-left: 4px;
+      font-size: 0.7rem;
+    }
+
+    tr:hover {
+      background: #1e293b;
+    }
+
+    .status-ready {
+      color: #4ade80;
+    }
+
+    .status-processing {
+      color: #fbbf24;
+    }
+
+    .score {
+      font-family: monospace;
+    }
+
+    .score-pos {
+      color: #4ade80;
+    }
+
+    .score-neg {
+      color: #f87171;
+    }
+
+    .geo-content-cell {
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+
+    .geo-content-cell:hover {
+      color: #38bdf8;
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 100;
+    }
+
+    .modal {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 80vw;
+      max-height: 80vh;
+      overflow: auto;
+      z-index: 101;
+    }
+
+    .modal h3 {
+      margin-bottom: 12px;
+      color: #38bdf8;
+      word-break: break-all;
+    }
+
+    .modal pre {
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-size: 0.8rem;
+      max-height: 60vh;
+      overflow: auto;
+    }
+
+    .modal .close {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 1.2rem;
+    }
+
+    .stats {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 12px 16px;
+      min-width: 120px;
+    }
+
+    .stat-card .label {
+      color: #94a3b8;
+      font-size: 0.75rem;
+    }
+
+    .stat-card .value {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    textarea#pasteArea {
+      width: 100%;
+      height: 120px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>📊 GEO Content — DynamoDB Viewer</h1>
+  <p class="subtitle">Step 1: Run the scan command. Step 2: Load the JSON here.</p>
+
+  <div style="background:#1e293b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:0.8rem;">
+    <code
+      style="color:#4ade80;">aws dynamodb scan --table-name geo-content --region us-east-1 --output json &gt; /tmp/geo-content.json</code>
+  </div>
+
+  <div class="controls">
+    <input type="file" id="fileInput" accept=".json" onchange="loadFromFile(event)">
+    <button onclick="showPasteArea()">📋 Paste JSON</button>
+    <button class="danger" onclick="clearData()">Clear</button>
+  </div>
+
+  <div id="pasteWrap" style="display:none">
+    <textarea id="pasteArea" placeholder="Paste DynamoDB scan JSON here..."></textarea>
+    <button onclick="loadData(document.getElementById('pasteArea').value)"
+      style="padding:8px 16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-bottom:16px;">Load</button>
+  </div>
+
+  <div class="controls" id="filterControls" style="display:none">
+    <input type="text" id="search" placeholder="Search url_path, host..." oninput="renderTable()">
+    <select id="statusFilter" onchange="renderTable()">
+      <option value="">All Status</option>
+      <option value="ready">ready</option>
+      <option value="processing">processing</option>
+    </select>
+    <select id="hostFilter" onchange="renderTable()">
+      <option value="">All Hosts</option>
+    </select>
+  </div>
+
+  <div class="stats" id="stats" style="display:none"></div>
+  <div id="status"></div>
+  <div class="table-wrap">
+    <table id="dataTable">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal()"></div>
+  <div class="modal" id="modal" style="display:none">
+    <span class="close" onclick="closeModal()">✕</span>
+    <h3 id="modalTitle"></h3>
+    <pre id="modalContent"></pre>
+  </div>
+
+  <script>
+    let data = [];
+    let sortCol = 'created_at';
+    let sortAsc = false;
+
+    const COLUMNS = [
+      { key: 'url_path', label: 'URL Path' },
+      { key: 'host', label: 'Host' },
+      { key: 'status', label: 'Status' },
+      { key: 'mode', label: 'Mode' },
+      { key: 'original_score_total', label: 'Orig Score' },
+      { key: 'geo_score_total', label: 'GEO Score' },
+      { key: 'score_improvement', label: 'Improvement' },
+      { key: 'generation_duration_ms', label: 'Gen (ms)' },
+      { key: 'created_at', label: 'Created' },
+      { key: 'updated_at', label: 'Updated' },
+      { key: 'geo_content', label: 'Content Preview' },
+    ];
+
+    function parseDdbValue(v) {
+      if (v === undefined || v === null) return null;
+      if (v.S !== undefined) return v.S;
+      if (v.N !== undefined) return parseFloat(v.N);
+      if (v.BOOL !== undefined) return v.BOOL;
+      if (v.M !== undefined) {
+        const obj = {};
+        for (const [mk, mv] of Object.entries(v.M)) {
+          obj[mk] = parseDdbValue(mv);
+        }
+        return obj;
+      }
+      if (v.L !== undefined) return v.L.map(parseDdbValue);
+      return JSON.stringify(v);
+    }
+
+    function parseItem(item) {
+      const r = {};
+      for (const [k, v] of Object.entries(item)) {
+        r[k] = parseDdbValue(v);
+      }
+      // flatten scores for sorting — use overall_score from nested structure
+      if (r.original_score && typeof r.original_score === 'object') {
+        r.original_score_total = r.original_score.overall_score != null ? r.original_score.overall_score : null;
+      } else { r.original_score_total = null; }
+      if (r.geo_score && typeof r.geo_score === 'object') {
+        r.geo_score_total = r.geo_score.overall_score != null ? r.geo_score.overall_score : null;
+      } else { r.geo_score_total = null; }
+      if (r.score_improvement === undefined || r.score_improvement === null) r.score_improvement = null;
+      return r;
+    }
+
+    function isDdbFormat(item) {
+      const firstVal = Object.values(item)[0];
+      return firstVal && typeof firstVal === 'object' && ('S' in firstVal || 'N' in firstVal || 'M' in firstVal);
+    }
+
+    function loadData(raw) {
+      try {
+        const json = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const items = json.Items || json;
+        if (!Array.isArray(items) || items.length === 0) throw new Error('Expected non-empty Items array');
+        data = items.map(i => isDdbFormat(i) ? parseItem(i) : i);
+        document.getElementById('status').textContent = `Loaded ${data.length} records`;
+        document.getElementById('filterControls').style.display = 'flex';
+        document.getElementById('pasteWrap').style.display = 'none';
+        populateFilters();
+        renderStats();
+        renderTable();
+      } catch (e) {
+        document.getElementById('status').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function populateFilters() {
+      const hosts = [...new Set(data.map(d => d.host).filter(Boolean))].sort();
+      const sel = document.getElementById('hostFilter');
+      sel.innerHTML = '<option value="">All Hosts</option>' + hosts.map(h => `<option value="${h}">${h}</option>`).join('');
+    }
+
+    function renderStats() {
+      const total = data.length;
+      const ready = data.filter(d => d.status === 'ready').length;
+      const processing = data.filter(d => d.status === 'processing').length;
+      const withScores = data.filter(d => d.score_improvement != null);
+      const avgImprovement = withScores.length ? (withScores.reduce((s, d) => s + d.score_improvement, 0) / withScores.length).toFixed(1) : '-';
+      const hosts = new Set(data.map(d => d.host).filter(Boolean)).size;
+
+      document.getElementById('stats').style.display = 'flex';
+      document.getElementById('stats').innerHTML = `
+    <div class="stat-card"><div class="label">Total Records</div><div class="value">${total}</div></div>
+    <div class="stat-card"><div class="label">Ready</div><div class="value" style="color:#4ade80">${ready}</div></div>
+    <div class="stat-card"><div class="label">Processing</div><div class="value" style="color:#fbbf24">${processing}</div></div>
+    <div class="stat-card"><div class="label">Hosts</div><div class="value">${hosts}</div></div>
+    <div class="stat-card"><div class="label">Avg Improvement</div><div class="value">${avgImprovement}</div></div>
+    <div class="stat-card"><div class="label">With Scores</div><div class="value">${withScores.length}</div></div>
+  `;
+    }
+
+    function getFiltered() {
+      const search = document.getElementById('search').value.toLowerCase();
+      const statusF = document.getElementById('statusFilter').value;
+      const hostF = document.getElementById('hostFilter').value;
+      return data.filter(d => {
+        if (search && !(d.url_path || '').toLowerCase().includes(search) && !(d.host || '').toLowerCase().includes(search)) return false;
+        if (statusF && d.status !== statusF) return false;
+        if (hostF && d.host !== hostF) return false;
+        return true;
+      });
+    }
+
+    function renderTable() {
+      const filtered = getFiltered();
+      filtered.sort((a, b) => {
+        let va = a[sortCol], vb = b[sortCol];
+        if (va == null) va = '';
+        if (vb == null) vb = '';
+        if (typeof va === 'number' && typeof vb === 'number') return sortAsc ? va - vb : vb - va;
+        return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+      });
+
+      const thead = document.querySelector('#dataTable thead');
+      thead.innerHTML = '<tr>' + COLUMNS.map(c =>
+        `<th onclick="sortBy('${c.key}')">${c.label}<span class="arrow">${sortCol === c.key ? (sortAsc ? '▲' : '▼') : ''}</span></th>`
+      ).join('') + '</tr>';
+
+      const tbody = document.querySelector('#dataTable tbody');
+      tbody.innerHTML = filtered.map((d, idx) => '<tr>' + COLUMNS.map(c => {
+        const v = d[c.key];
+        if (c.key === 'status') return `<td class="status-${v}">${v || ''}</td>`;
+        if (c.key === 'score_improvement') {
+          if (v == null) return '<td>-</td>';
+          const cls = v > 0 ? 'score-pos' : v < 0 ? 'score-neg' : '';
+          return `<td class="score ${cls}">${v > 0 ? '+' : ''}${v}</td>`;
+        }
+        if (c.key === 'original_score_total' || c.key === 'geo_score_total') {
+          return `<td class="score">${v != null ? v : '-'}</td>`;
+        }
+        if (c.key === 'generation_duration_ms') {
+          return `<td class="score">${v != null ? Math.round(v).toLocaleString() : '-'}</td>`;
+        }
+        if (c.key === 'geo_content') {
+          const preview = (v || '').substring(0, 80).replace(/</g, '&lt;');
+          return `<td class="geo-content-cell" onclick="showContent(${idx})">${preview}${v && v.length > 80 ? '...' : ''}</td>`;
+        }
+        return `<td>${escHtml(String(v != null ? v : ''))}</td>`;
+      }).join('') + '</tr>').join('');
+
+      document.getElementById('status').textContent = `Showing ${filtered.length} of ${data.length} records`;
+    }
+
+    function sortBy(col) {
+      if (sortCol === col) sortAsc = !sortAsc;
+      else { sortCol = col; sortAsc = true; }
+      renderTable();
+    }
+
+    function showContent(idx) {
+      const filtered = getFiltered();
+      const item = filtered[idx];
+      if (!item) return;
+      document.getElementById('modalTitle').textContent = item.url_path;
+      // Show score dimensions + metadata
+      const dims = (label, scoreObj) => {
+        if (!scoreObj || typeof scoreObj !== 'object') return `  ${label}: N/A\n`;
+        const d = scoreObj.dimensions || {};
+        const lines = [`  ${label}: ${scoreObj.overall_score || 'N/A'}`];
+        for (const [k, v] of Object.entries(d)) {
+          const s = typeof v === 'object' ? (v.score != null ? v.score : JSON.stringify(v)) : v;
+          lines.push(`    ${k}: ${s}`);
+        }
+        return lines.join('\n') + '\n';
+      };
+      let text = '=== Scores ===\n';
+      text += dims('Original', item.original_score);
+      text += dims('GEO', item.geo_score);
+      text += `  Improvement: ${item.score_improvement != null ? item.score_improvement : 'N/A'}\n`;
+      text += '\n=== Metadata ===\n';
+      const meta = { ...item };
+      delete meta.geo_content; delete meta.original_score; delete meta.geo_score;
+      delete meta.original_score_total; delete meta.geo_score_total;
+      text += JSON.stringify(meta, null, 2);
+      text += '\n\n=== GEO Content ===\n' + (item.geo_content || '(empty)');
+      document.getElementById('modalContent').textContent = text;
+      document.getElementById('modal').style.display = 'block';
+      document.getElementById('modalOverlay').style.display = 'block';
+    }
+
+    function closeModal() {
+      document.getElementById('modal').style.display = 'none';
+      document.getElementById('modalOverlay').style.display = 'none';
+    }
+
+    function escHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+    function showPasteArea() {
+      const wrap = document.getElementById('pasteWrap');
+      wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function loadFromFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => loadData(ev.target.result);
+      reader.readAsText(file);
+    }
+
+    function clearData() {
+      data = [];
+      document.querySelector('#dataTable thead').innerHTML = '';
+      document.querySelector('#dataTable tbody').innerHTML = '';
+      document.getElementById('stats').style.display = 'none';
+      document.getElementById('filterControls').style.display = 'none';
+      document.getElementById('status').textContent = '';
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  </script>
+</body>
+
+</html>

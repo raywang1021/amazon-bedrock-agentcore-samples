@@ -301,8 +301,8 @@ Table: `geo-content`, partition key: `url_path` (S)
 | `updated_at` | S | Last updated time |
 | `generation_duration_ms` | N | AgentCore generation time (ms) |
 | `generator_duration_ms` | N | Generator Lambda total time (ms) |
-| `original_score` | M | Pre-rewrite GEO score |
-| `geo_score` | M | Post-rewrite GEO score |
+| `original_score` | M | Pre-rewrite GEO score (5 dimensions: authority, freshness, relevance, structure, readability) |
+| `geo_score` | M | Post-rewrite GEO score (same 5 dimensions) |
 | `score_improvement` | N | Score improvement (geo - original) |
 | `ttl` | N | DynamoDB TTL (Unix timestamp) |
 

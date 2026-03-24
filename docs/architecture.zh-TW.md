@@ -301,8 +301,8 @@ Table: `geo-content`，partition key: `url_path` (S)
 | `updated_at` | S | 最後更新時間 |
 | `generation_duration_ms` | N | AgentCore 產生時間（ms） |
 | `generator_duration_ms` | N | Generator Lambda 整體時間（ms） |
-| `original_score` | M | 改寫前 GEO 分數 |
-| `geo_score` | M | 改寫後 GEO 分數 |
+| `original_score` | M | 改寫前 GEO 分數（5 維度：authority、freshness、relevance、structure、readability） |
+| `geo_score` | M | 改寫後 GEO 分數（同 5 維度） |
 | `score_improvement` | N | 分數改善（geo - original） |
 | `ttl` | N | DynamoDB TTL（Unix timestamp） |
 
