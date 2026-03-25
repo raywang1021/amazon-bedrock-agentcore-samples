@@ -55,3 +55,6 @@ docs/internal-screenshots/
 # OS
 .DS_Store
 Thumbs.db
+
+# Kiro (code reviews are local-only)
+.kiro/code-review-*
