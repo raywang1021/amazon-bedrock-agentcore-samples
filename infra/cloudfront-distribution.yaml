@@ -52,29 +52,7 @@ Resources:
           CookiesConfig:
             CookieBehavior: none
           QueryStringsConfig:
-            QueryStringBehavior: whitelist
-            QueryStrings:
-              - action
-              - mode
-              - purge
-              - ua
-
-  GeoOriginRequestPolicy:
-    Type: AWS::CloudFront::OriginRequestPolicy
-    Properties:
-      OriginRequestPolicyConfig:
-        Name: !Sub "${AWS::StackName}-geo-origin-request"
-        HeadersConfig:
-          HeaderBehavior: whitelist
-          Headers:
-            - x-geo-bot
-            - x-geo-bot-ua
-            - x-original-host
-            - x-origin-verify
-        CookiesConfig:
-          CookieBehavior: none
-        QueryStringsConfig:
-          QueryStringBehavior: all
+            QueryStringBehavior: all
 
   GeoCff:
     Type: AWS::CloudFront::Function
@@ -156,7 +134,6 @@ Resources:
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD]
           CachePolicyId: !Ref GeoCachePolicy
-          OriginRequestPolicyId: !Ref GeoOriginRequestPolicy
           Compress: true
           FunctionAssociations:
             - EventType: viewer-request
