@@ -352,8 +352,11 @@ def handler(event, context):
         try:
             table.delete_item(Key={"url_path": ddb_key})
             print(f"Purged {ddb_key}")
-            cf_invalidated = _invalidate_cf_cache(path)
-            result = {"status": "purged", "url_path": path, "ddb_key": ddb_key}
+            # Use full path with querystring for CF invalidation
+            # e.g. /News.aspx?NewsID=1810466 → /News.aspx?NewsID=1810466*
+            full_path = f"{path}?{qs}" if qs else path
+            cf_invalidated = _invalidate_cf_cache(full_path)
+            result = {"status": "purged", "url_path": full_path, "ddb_key": ddb_key}
             if cf_invalidated:
                 result["cf_invalidation"] = cf_invalidated
             return {

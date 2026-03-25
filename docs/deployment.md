@@ -210,7 +210,7 @@ DDB purge (`?purge=true`) only clears DDB records, not CF cache. For immediate e
 ```bash
 aws cloudfront create-invalidation \
   --distribution-id <DIST_ID> \
-  --paths "/world/3149600"
+  --paths "/world/3149600*"
 ```
 
 First 1,000 invalidation paths per month are free.
