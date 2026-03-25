@@ -297,6 +297,17 @@ aws cloudformation wait stack-delete-complete --stack-name <STACK_NAME> --region
 # 3. Destroy AgentCore runtime + ECR repo + S3 artifacts
 agentcore destroy
 
+# 3a. Verify ECR repo is deleted (agentcore destroy should handle this)
+aws ecr describe-repositories --region us-east-1 \
+  --query "repositories[?contains(repositoryName,'agentcore')].repositoryName" --output text
+# If any remain, delete manually:
+# aws ecr delete-repository --repository-name <REPO_NAME> --region us-east-1 --force
+
+# 3b. Check for AgentCore S3 bucket
+aws s3 ls | grep agentcore
+# If found and no longer needed:
+# aws s3 rb s3://<BUCKET_NAME> --force
+
 # 4. Clean up AgentCore auto-created IAM roles
 #    Note: AWSServiceRoleForBedrockAgentCoreRuntimeIdentity is an AWS-managed
 #    service-linked role — it will show "UnmodifiableEntity" errors. This is
