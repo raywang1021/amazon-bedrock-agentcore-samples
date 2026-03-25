@@ -430,7 +430,7 @@ echo "  ✓ samconfig.toml updated with AgentRuntimeArn"
 echo ""
 echo "==> [6/6] Deploying infrastructure (Lambda + DDB + OAC)..."
 sam build -t infra/template.yaml
-sam deploy -t infra/template.yaml --no-confirm-changeset
+sam deploy --no-confirm-changeset
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
