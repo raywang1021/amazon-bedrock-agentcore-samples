@@ -287,6 +287,97 @@ if .venv/bin/pip show chardet > /dev/null 2>&1; then
 fi
 
 # ----------------------------------------------------------
+# Step 4: Generate .bedrock_agentcore.yaml
+# ----------------------------------------------------------
+echo ""
+echo "==> Generating .bedrock_agentcore.yaml..."
+
+AGENT_NAME="geoagent"
+ENTRYPOINT="$(pwd)/src/main.py"
+SOURCE_PATH="$(pwd)/src"
+
+# Detect platform
+PLATFORM="linux/arm64"
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then
+    DEPLOY_TYPE="container"
+else
+    # arm64 native — prefer direct code deploy if uv is available
+    if command -v uv &>/dev/null; then
+        DEPLOY_TYPE="direct_code_deploy"
+    else
+        DEPLOY_TYPE="container"
+    fi
+fi
+
+cat > .bedrock_agentcore.yaml <<EOF
+default_agent: ${AGENT_NAME}
+agents:
+  ${AGENT_NAME}:
+    name: ${AGENT_NAME}
+    language: python
+    node_version: '20'
+    entrypoint: ${ENTRYPOINT}
+    deployment_type: ${DEPLOY_TYPE}
+    runtime_type: PYTHON_3_10
+    platform: ${PLATFORM}
+    container_runtime: null
+    source_path: ${SOURCE_PATH}
+    aws:
+      execution_role: null
+      execution_role_auto_create: true
+      account: ${AWS_ACCOUNT}
+      region: ${AWS_REGION}
+      ecr_repository: null
+      ecr_auto_create: true
+      s3_path: null
+      s3_auto_create: true
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+      lifecycle_configuration:
+        idle_runtime_session_timeout: null
+        max_lifetime: null
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    codebuild:
+      project_name: null
+      execution_role: null
+      source_bucket: null
+    memory:
+      mode: STM_ONLY
+      memory_id: null
+      memory_arn: null
+      memory_name: ${AGENT_NAME}_mem
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: true
+    identity:
+      credential_providers: []
+      workload: null
+    aws_jwt:
+      enabled: false
+      audiences: []
+      signing_algorithm: ES384
+      issuer_url: null
+      duration_seconds: 300
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null
+    api_key_env_var_name: null
+    api_key_credential_provider_name: null
+    is_generated_by_agentcore_create: false
+EOF
+
+echo "  ✓ .bedrock_agentcore.yaml created (agent: ${AGENT_NAME}, deploy: ${DEPLOY_TYPE})"
+
+# ----------------------------------------------------------
 # Done
 # ----------------------------------------------------------
 echo ""
@@ -307,11 +398,9 @@ echo "Next steps:"
 echo ""
 if [ -z "$VIRTUAL_ENV" ]; then
     echo "  1. source .venv/bin/activate"
-    echo "  2. agentcore configure        # AWS credentials + AgentCore setup"
-    echo "  3. agentcore deploy           # Deploy agent → get Runtime ARN"
-else
-    echo "  1. agentcore configure        # AWS credentials + AgentCore setup"
     echo "  2. agentcore deploy           # Deploy agent → get Runtime ARN"
+else
+    echo "  1. agentcore deploy           # Deploy agent → get Runtime ARN"
 fi
 echo "  Then:"
 echo "     sam build -t infra/template.yaml"
@@ -323,5 +412,6 @@ if [ "$CREATE_DISTRIBUTION" = "true" ]; then
     echo ""
 fi
 echo "  TIP: Use 'source ./setup.sh' to auto-activate the venv after setup."
+echo "  TIP: .bedrock_agentcore.yaml is pre-configured — no need to run 'agentcore configure'."
 echo "  See docs/deployment.md for full deployment guide."
 echo ""
