@@ -389,40 +389,72 @@ EOF
 echo "  ✓ .bedrock_agentcore.yaml created (agent: ${AGENT_NAME}, deploy: ${DEPLOY_TYPE})"
 
 # ----------------------------------------------------------
-# Done
+# Step 5: Deploy AgentCore + Infrastructure
 # ----------------------------------------------------------
 echo ""
+echo "Ready to deploy to AWS:"
+echo "  1. AgentCore agent (Bedrock AgentCore)"
+echo "  2. Infrastructure (Lambda + DDB + OAC + CloudFront)"
+echo ""
+read -rp "Deploy now? [Y/n]: " DEPLOY_CONFIRM
+DEPLOY_CONFIRM="${DEPLOY_CONFIRM:-Y}"
+if [[ ! "$DEPLOY_CONFIRM" =~ ^[Yy] ]]; then
+    echo ""
+    echo "Setup complete (no deploy). To deploy later:"
+    echo "  source .venv/bin/activate"
+    echo "  agentcore deploy"
+    echo "  sam build -t infra/template.yaml"
+    echo "  sam deploy -t infra/template.yaml"
+    exit 0
+fi
+
+echo ""
+echo "==> [5/6] Deploying GEO Agent to AgentCore..."
+source .venv/bin/activate
+agentcore deploy
+
+# Extract Agent Runtime ARN from config
+AGENT_ARN=$(grep 'agent_arn:' .bedrock_agentcore.yaml | head -1 | awk '{print $2}')
+if [ -z "$AGENT_ARN" ] || [ "$AGENT_ARN" = "null" ]; then
+    echo "  ⚠ Could not extract AgentRuntimeArn from .bedrock_agentcore.yaml"
+    echo "    Run 'agentcore deploy' manually, then update samconfig.toml with the ARN."
+    exit 1
+fi
+echo "  ✓ Agent deployed: ${AGENT_ARN}"
+
+# Update samconfig.toml with AgentRuntimeArn
+sed -i.bak "s|parameter_overrides = \"|parameter_overrides = \"AgentRuntimeArn=\\\\\"${AGENT_ARN}\\\\\" |" samconfig.toml
+rm -f samconfig.toml.bak
+echo "  ✓ samconfig.toml updated with AgentRuntimeArn"
+
+echo ""
+echo "==> [6/6] Deploying infrastructure (Lambda + DDB + OAC)..."
+sam build -t infra/template.yaml
+sam deploy -t infra/template.yaml --no-confirm-changeset
+
+echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  Setup complete!                                 ║"
+echo "║  Deployment complete!                            ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-# Auto-activate venv if script was sourced
-if [ -n "$BASH_SOURCE" ] && [ "$0" != "$BASH_SOURCE" ]; then
-    echo "==> Activating virtual environment..."
-    source .venv/bin/activate
-    echo "  ✓ venv activated"
-    echo ""
-fi
+# Show outputs
+echo "--- Stack Outputs ---"
+aws cloudformation describe-stacks \
+    --stack-name geo-backend \
+    --region "${AWS_REGION}" \
+    --query "Stacks[0].Outputs[*].[OutputKey,OutputValue]" \
+    --output table 2>/dev/null || true
 
-echo "Next steps:"
 echo ""
-if [ -z "$VIRTUAL_ENV" ]; then
-    echo "  1. source .venv/bin/activate"
-    echo "  2. agentcore deploy           # Deploy agent → get Runtime ARN"
-else
-    echo "  1. agentcore deploy           # Deploy agent → get Runtime ARN"
-fi
-echo "  Then:"
-echo "     sam build -t infra/template.yaml"
-echo "     sam deploy -t infra/template.yaml"
+echo "Test with:"
+echo "  source .venv/bin/activate"
+echo "  agentcore invoke \"What tools do you have?\""
 echo ""
 if [ "$CREATE_DISTRIBUTION" = "true" ]; then
-    echo "  A new CloudFront distribution will be created during sam deploy."
-    echo "  After deployment, check the stack outputs for the distribution domain."
-    echo ""
+    echo "  # Get CF distribution domain from stack outputs above, then:"
+    echo "  curl \"https://<CF_DOMAIN>/some-path?ua=genaibot&mode=sync\""
 fi
-echo "  TIP: Use 'source ./setup.sh' to auto-activate the venv after setup."
-echo "  TIP: .bedrock_agentcore.yaml is pre-configured — no need to run 'agentcore configure'."
-echo "  See docs/deployment.md for full deployment guide."
+echo ""
+echo "  See docs/deployment.md for adding more sites."
 echo ""
