@@ -6,8 +6,8 @@ Generative Engine Optimization (GEO) agent deployed via Bedrock AgentCore, with 
 
 ## Features
 
-- **Content Rewriting**: Rewrites web content into GEO-optimized format (structured headings, Q&A, E-E-A-T signals)
-- **GEO Scoring**: Three-perspective analysis (as-is / original / geo) of a URL's GEO readiness, each with three dimensions (cited_sources / statistical_addition / authoritative), using `temperature=0.1` for consistency
+- **Content Rewriting**: Auto-detects content type (news / e-commerce / blog / FAQ / general) and applies type-specific GEO optimization with semantic HTML, JSON-LD schema markup, and structural signals
+- **GEO Scoring**: Five-dimension weighted scoring aligned with AI search engine ranking signals — authority (25%), freshness (20%), relevance (30%), structure (15%), readability (10%) — evaluated from three perspectives (as-is / original / geo) using `temperature=0.1` for consistency
 - **Score Tracking**: Automatically records pre/post-rewrite GEO scores to DynamoDB for optimization tracking (see [Score Tracking](docs/score-tracking.md))
 - **llms.txt Generation**: Generates AI-friendly llms.txt for websites
 - **Edge Serving**: CloudFront Function detects AI bots, routes to GEO-optimized content via OAC + Lambda Function URL
@@ -23,10 +23,10 @@ src/
 └── tools/
     ├── fetch.py             # Shared web fetching (trafilatura + fallback, custom UA)
     ├── rewrite_content.py   # GEO content rewriting
-    ├── evaluate_geo_score.py # Three-perspective GEO scoring (as-is / original / geo)
+    ├── evaluate_geo_score.py # Three-perspective GEO scoring (5 dimensions × 3 perspectives)
     ├── generate_llms_txt.py # llms.txt generation
-    ├── store_geo_content.py # Fetch → Rewrite → Score → Store to DynamoDB
-    ├── prompts.py           # Shared rewrite prompt
+    ├── store_geo_content.py # Fetch → Rewrite → Score (5-dim) → Store to DynamoDB
+    ├── prompts.py           # Type-specific rewrite prompts (news/ecommerce/blog/FAQ/general)
     └── sanitize.py          # Prompt injection protection
 
 infra/
@@ -45,18 +45,11 @@ infra/
 ## Quick Start
 
 ```bash
-# 1. Environment setup
+# 1. Environment setup (generates venv + samconfig.toml + .bedrock_agentcore.yaml)
 ./setup.sh
 source .venv/bin/activate
 
-# 2. AWS configuration
-agentcore configure
-
-# 3. Local development
-agentcore dev
-agentcore invoke --dev "What can you do"
-
-# 4. Deploy
+# 2. Deploy
 agentcore deploy
 sam build -t infra/template.yaml
 sam deploy -t infra/template.yaml
