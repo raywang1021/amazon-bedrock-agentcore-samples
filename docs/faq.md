@@ -78,3 +78,31 @@ The difference lies in positioning and deployment context:
 | Scalability | Single machine | Serverless auto-scaling, session isolation |
 
 In short: OpenClaw is great for personal agents running on your own machine; AgentCore is built for enterprise scenarios that need production-grade infrastructure. This project uses AgentCore because GEO content is distributed at scale via CloudFront CDN, requiring managed runtime, observability, and native integration with AWS services (DynamoDB, Lambda, CloudFront).
+
+## Why does the CloudFront Cache Policy forward all query strings instead of just the GEO-specific ones?
+
+The GEO system only needs four query string parameters for its own logic: `ua`, `mode`, `action`, and `purge`. However, the origin website behind CloudFront may rely on arbitrary query strings for its own routing, pagination, tracking, etc. Since we don't know the origin's requirements upfront, the cache policy forwards all query strings to avoid breaking origin functionality.
+
+### Cache Policy Configuration
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Headers | Whitelist: `x-geo-bot`, `x-original-host` | Only GEO-specific headers need to be in the cache key. `x-geo-bot` differentiates bot vs normal requests; `x-original-host` isolates multi-tenant content. |
+| Query Strings | All | Origin websites may depend on query strings we don't control. Forwarding all ensures nothing breaks. |
+| Cookies | None | GEO content is the same regardless of user session. Not forwarding cookies also improves cache hit ratio. |
+| DefaultTTL | 0 | GEO content freshness is managed by DynamoDB TTL, not CloudFront cache TTL. |
+
+### Origin Request Policy
+
+Set to **None**. When no origin request policy is attached, CloudFront forwards exactly what the cache policy specifies. This is sufficient because:
+
+- The cache policy already forwards all query strings and the required headers
+- GEO-internal headers (`x-geo-bot-ua`, `x-origin-verify`) are set by the CFF at the viewer-request stage and are included in the origin request automatically
+- Attaching an origin request policy would add complexity without benefit in this setup
+
+### Production Considerations
+
+For production deployments where the origin's requirements are known, you may want to:
+- Switch query strings from "All" to a whitelist (GEO params + known origin params) to improve cache hit ratio
+- Add an origin request policy if the origin needs specific headers that shouldn't be in the cache key
+- Forward cookies if the origin requires session-aware responses

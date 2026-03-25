@@ -78,3 +78,31 @@ sanitize 做三件事：
 | 擴展性 | 單機為主 | Serverless auto-scaling、session 隔離 |
 
 簡單說：OpenClaw 適合個人跑在自己機器上的 agent，AgentCore 適合需要 production-grade infra 的企業場景。本專案選擇 AgentCore 是因為 GEO 內容透過 CloudFront CDN 大量散播，需要 managed runtime、observability、以及跟 AWS 服務（DynamoDB、Lambda、CloudFront）的原生整合。
+
+## 為什麼 CloudFront Cache Policy 要轉發所有 query strings，而不是只轉發 GEO 用的？
+
+GEO 系統本身只需要四個 query string 參數：`ua`、`mode`、`action`、`purge`。但 CloudFront 後方的 origin 網站可能依賴各種 query strings 做路由、分頁、追蹤等。由於我們無法預知 origin 的需求，cache policy 轉發所有 query strings 以避免破壞 origin 功能。
+
+### Cache Policy 設定
+
+| 設定 | 值 | 原因 |
+|------|---|------|
+| Headers | Whitelist: `x-geo-bot`, `x-original-host` | 只有 GEO 專用 headers 需要納入 cache key。`x-geo-bot` 區分 bot 和一般請求；`x-original-host` 隔離多租戶內容。 |
+| Query Strings | All | Origin 網站可能依賴我們不知道的 query strings，全部轉發確保不會壞。 |
+| Cookies | None | GEO 內容不因使用者 session 而異。不轉發 cookies 也能提升 cache hit ratio。 |
+| DefaultTTL | 0 | GEO 內容的新鮮度由 DynamoDB TTL 管理，不靠 CloudFront cache TTL。 |
+
+### Origin Request Policy
+
+設定為 **None**（不附加）。不附加 origin request policy 時，CloudFront 會轉發 cache policy 指定的內容。這已經足夠，因為：
+
+- Cache policy 已經轉發所有 query strings 和必要的 headers
+- GEO 內部 headers（`x-geo-bot-ua`、`x-origin-verify`）由 CFF 在 viewer-request 階段設定，會自動包含在 origin request 中
+- 附加 origin request policy 只會增加複雜度，在此設定下沒有額外好處
+
+### 正式環境考量
+
+在已知 origin 需求的正式環境中，可以考慮：
+- 將 query strings 從 "All" 改為 whitelist（GEO 參數 + 已知 origin 參數）以提升 cache hit ratio
+- 如果 origin 需要特定 headers 但不應納入 cache key，可附加 origin request policy
+- 如果 origin 需要 session-aware 回應，可轉發 cookies
