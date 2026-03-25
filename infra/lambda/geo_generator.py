@@ -50,7 +50,14 @@ def _invoke_agentcore(url: str) -> str | None:
                 if line:
                     decoded = line.decode("utf-8")
                     if decoded.startswith("data: "):
-                        parts.append(decoded[6:])
+                        chunk = decoded[6:]
+                        # SSE data chunks may be JSON-encoded strings — try to decode
+                        if chunk.startswith('"') and chunk.endswith('"'):
+                            try:
+                                chunk = json.loads(chunk)
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+                        parts.append(chunk)
         else:
             for chunk in response.get("response", []):
                 if isinstance(chunk, bytes):
@@ -58,7 +65,11 @@ def _invoke_agentcore(url: str) -> str | None:
                 else:
                     parts.append(str(chunk))
 
-        return "".join(parts) if parts else None
+        result = "".join(parts) if parts else None
+        if result:
+            # Final cleanup: unescape any remaining artifacts
+            result = result.replace('\\n', '\n').replace('\\"', '"')
+        return result
 
     except Exception as e:
         print(f"AgentCore invocation failed: {e}")
@@ -189,6 +200,12 @@ def handler(event, context):
     )
     if html_match:
         geo_content = html_match.group(1).strip()
+        # Unescape common artifacts from SSE streaming response
+        geo_content = geo_content.replace('\\n', '\n')
+        geo_content = geo_content.replace('\\"', '"')
+        geo_content = geo_content.replace('""', '"')
+        # Clean up any trailing markers
+        geo_content = re.sub(r'\s*===\s*REWRITTEN CONTENT END\s*===\s*$', '', geo_content).strip()
     else:
         # No HTML found — don't store conversational text as GEO content
         print(
