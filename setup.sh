@@ -326,7 +326,7 @@ agents:
     aws:
       execution_role: null
       execution_role_auto_create: true
-      account: ${AWS_ACCOUNT}
+      account: "${AWS_ACCOUNT}"
       region: ${AWS_REGION}
       ecr_repository: null
       ecr_auto_create: true
