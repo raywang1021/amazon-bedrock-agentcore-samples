@@ -296,18 +296,29 @@ AGENT_NAME="geoagent"
 ENTRYPOINT="$(pwd)/src/main.py"
 SOURCE_PATH="$(pwd)/src"
 
-# Detect platform
+# Detect platform and ensure uv is available for direct_code_deploy
 PLATFORM="linux/arm64"
-ARCH=$(uname -m)
-if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then
-    DEPLOY_TYPE="container"
-else
-    # arm64 native — prefer direct code deploy if uv is available
-    if command -v uv &>/dev/null; then
-        DEPLOY_TYPE="direct_code_deploy"
-    else
-        DEPLOY_TYPE="container"
+DEPLOY_TYPE="direct_code_deploy"
+
+if ! command -v uv &>/dev/null; then
+    echo "==> Installing uv (required for AgentCore direct code deploy)..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1 | tail -1
+    # Source uv into current shell
+    if [ -f "$HOME/.local/bin/env" ]; then
+        source "$HOME/.local/bin/env"
+    elif [ -f "$HOME/.cargo/env" ]; then
+        source "$HOME/.cargo/env"
     fi
+    export PATH="$HOME/.local/bin:$PATH"
+    if command -v uv &>/dev/null; then
+        echo "  ✓ uv installed ($(uv --version))"
+    else
+        echo "  ⚠ uv installation failed. Install manually: https://docs.astral.sh/uv/getting-started/installation/"
+        echo "    Then re-run ./setup.sh"
+        exit 1
+    fi
+else
+    echo "  ✓ uv found ($(uv --version))"
 fi
 
 cat > .bedrock_agentcore.yaml <<EOF
