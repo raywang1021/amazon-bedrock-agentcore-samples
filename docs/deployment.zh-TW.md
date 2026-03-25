@@ -297,6 +297,9 @@ aws cloudformation wait stack-delete-complete --stack-name <STACK_NAME> --region
 agentcore destroy
 
 # 4. 清除 AgentCore 自動建立的 IAM roles
+#    注意：AWSServiceRoleForBedrockAgentCoreRuntimeIdentity 是 AWS 管理的
+#    service-linked role，會出現 "UnmodifiableEntity" 錯誤，這是正常的，
+#    可以安全忽略。只有 BedrockAgentCoreSDK* 開頭的 roles 會被刪除。
 for ROLE in $(aws iam list-roles --query "Roles[?contains(RoleName,'BedrockAgentCoreSDK')].RoleName" --output text); do
   for P in $(aws iam list-attached-role-policies --role-name $ROLE --query 'AttachedPolicies[].PolicyArn' --output text); do
     aws iam detach-role-policy --role-name $ROLE --policy-arn $P
@@ -311,8 +314,6 @@ done
 rm -f .bedrock_agentcore.yaml samconfig.toml
 rm -rf .bedrock_agentcore .aws-sam .venv
 ```
-
-注意：`AWSServiceRoleForBedrockAgentCoreRuntimeIdentity` 是 AWS 管理的 service-linked role，無法也不需要刪除。
 
 如果 CloudFormation stack 刪除失敗（某資源顯示 `DELETE_FAILED`，例如 OAC 仍被使用）：
 

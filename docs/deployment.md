@@ -298,6 +298,9 @@ aws cloudformation wait stack-delete-complete --stack-name <STACK_NAME> --region
 agentcore destroy
 
 # 4. Clean up AgentCore auto-created IAM roles
+#    Note: AWSServiceRoleForBedrockAgentCoreRuntimeIdentity is an AWS-managed
+#    service-linked role — it will show "UnmodifiableEntity" errors. This is
+#    expected and safe to ignore. Only BedrockAgentCoreSDK* roles are deleted.
 for ROLE in $(aws iam list-roles --query "Roles[?contains(RoleName,'BedrockAgentCoreSDK')].RoleName" --output text); do
   for P in $(aws iam list-attached-role-policies --role-name $ROLE --query 'AttachedPolicies[].PolicyArn' --output text); do
     aws iam detach-role-policy --role-name $ROLE --policy-arn $P
@@ -312,8 +315,6 @@ done
 rm -f .bedrock_agentcore.yaml samconfig.toml
 rm -rf .bedrock_agentcore .aws-sam .venv
 ```
-
-Note: `AWSServiceRoleForBedrockAgentCoreRuntimeIdentity` is an AWS-managed service-linked role — it cannot and does not need to be deleted.
 
 If CloudFormation stack deletion fails with `DELETE_FAILED` on a resource (e.g., OAC still in use):
 
