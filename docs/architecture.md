@@ -94,7 +94,27 @@ Guardrail capabilities:
 - Filter inappropriate content (hate speech, violence, explicit content, etc.)
 - Restrict PII leakage
 - Custom denied topics (e.g., block generation of specific content types)
-- Prevent prompt injection attacks (dual protection with `sanitize.py`)
+
+## Prompt Injection Protection (`sanitize.py`)
+
+Since the agent fetches untrusted web content and feeds it into LLM prompts, the system needs protection against indirect prompt injection. `sanitize_web_content()` runs before any fetched content reaches the LLM:
+
+1. Strip HTML comments (`<!-- ... -->`) — attackers hide instructions here
+2. Remove invisible unicode characters (zero-width, control chars) — used to bypass regex detection
+3. Redact known injection patterns — `ignore all previous instructions`, `[INST]`, `<<SYS>>`, `system:`, etc.
+
+### Guardrail + Sanitize: Complementary Layers
+
+| Layer | Defends Against | Position | Scope |
+|-------|----------------|----------|-------|
+| `sanitize.py` | Indirect prompt injection (from web content) | Tool layer, before LLM sees it | Strips/redacts malicious patterns from fetched text |
+| Bedrock Guardrail | Content safety (PII, hate speech, explicit content) | LLM layer, filters input/output | Blocks unsafe content generation |
+
+Guardrail alone is not sufficient because:
+- Guardrail is designed for content safety, not prompt injection detection
+- Prompt injection payloads (e.g., "ignore previous instructions") are not inherently unsafe content — they're valid English text that Guardrail won't flag
+- The attack vector is indirect: malicious instructions are embedded in web pages, fetched by tools, and injected into the LLM context
+- By the time Guardrail sees the content, it's already part of the prompt — the LLM may follow the injected instructions before Guardrail can filter the output
 
 ## HTML Content Validation (Three-Layer Protection)
 

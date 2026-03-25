@@ -94,7 +94,27 @@ Guardrail 可用於：
 - 過濾不當內容（仇恨言論、暴力、色情等）
 - 限制 PII 洩漏
 - 自訂 denied topics（例如禁止產生特定類型內容）
-- 防止 prompt injection 攻擊（搭配 `sanitize.py` 雙重防護）
+
+## Prompt Injection 防護（`sanitize.py`）
+
+由於 agent 會抓取不受信任的網頁內容並餵進 LLM prompt，系統需要防護 indirect prompt injection。`sanitize_web_content()` 在任何抓取的內容送到 LLM 之前執行：
+
+1. 移除 HTML 註解（`<!-- ... -->`）— 攻擊者常把指令藏在這裡
+2. 移除不可見 unicode 字元（zero-width、控制字元）— 用來繞過 regex 偵測
+3. 替換已知 injection patterns — `ignore all previous instructions`、`[INST]`、`<<SYS>>`、`system:` 等
+
+### Guardrail + Sanitize：互補的防護層
+
+| 防護層 | 防什麼 | 位置 | 範圍 |
+|--------|--------|------|------|
+| `sanitize.py` | Indirect prompt injection（來自網頁內容） | Tool 層，LLM 看到之前 | 從抓取的文字中移除/替換惡意 pattern |
+| Bedrock Guardrail | Content safety（PII、仇恨言論、色情等） | LLM 層，input/output 過濾 | 阻擋不安全的內容生成 |
+
+僅靠 Guardrail 不夠的原因：
+- Guardrail 設計目標是 content safety，不是 prompt injection 偵測
+- Prompt injection payload（如 "ignore previous instructions"）本身不是不安全內容 — 它是合法的英文句子，Guardrail 不會標記
+- 攻擊向量是間接的：惡意指令嵌在網頁中，被 tool 抓取後注入 LLM context
+- 當 Guardrail 看到內容時，它已經是 prompt 的一部分 — LLM 可能在 Guardrail 過濾 output 之前就已經遵循了注入的指令
 
 ## HTML 內容驗證（三層防護）
 
