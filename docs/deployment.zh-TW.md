@@ -233,3 +233,96 @@ curl "https://<FUNCTION_URL>/world/3149599"  # 應回 403
 curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"  # text/markdown
 curl "https://<CF_DOMAIN>/llms.txt"               # 原站內容
 ```
+
+## 列出已部署的資源
+
+### AgentCore
+
+```bash
+# Agent runtime 狀態和 ARN
+agentcore status
+
+# Execution role
+grep execution_role .bedrock_agentcore.yaml
+```
+
+### SAM / CloudFormation Stacks
+
+```bash
+# 列出所有 GEO 相關 stacks
+aws cloudformation list-stacks --region us-east-1 \
+  --query "StackSummaries[?contains(StackName,'geo') && StackStatus!='DELETE_COMPLETE'].[StackName,StackStatus,CreationTime]" \
+  --output table
+
+# 列出 stack 中所有資源
+aws cloudformation list-stack-resources --stack-name geo-backend --region us-east-1 \
+  --query "StackResourceSummaries[].[LogicalResourceId,ResourceType,PhysicalResourceId]" \
+  --output table
+```
+
+### CloudFront Distributions（GEO 啟用的）
+
+```bash
+# 找出使用 GEO Lambda origin 的 distributions
+aws cloudfront list-distributions \
+  --query "DistributionList.Items[?Origins.Items[?contains(DomainName,'lambda-url')]].{Id:Id,Domain:DomainName,Comment:Comment}" \
+  --output table
+```
+
+### IAM Roles（AgentCore 自動建立的）
+
+```bash
+aws iam list-roles \
+  --query "Roles[?contains(RoleName,'BedrockAgentCore')].{Name:RoleName,Created:CreateDate}" \
+  --output table
+```
+
+## 清除 / 移除所有資源
+
+依反向順序移除所有資源。在專案根目錄、venv 啟用的狀態下執行。
+
+```bash
+source .venv/bin/activate
+
+# 1. 刪除額外的 CF distribution stacks（如果有的話）
+aws cloudformation delete-stack --stack-name geo-cf-pchome --region us-east-1
+aws cloudformation wait stack-delete-complete --stack-name geo-cf-pchome --region us-east-1
+
+# 2. 刪除 backend stack（Lambda + DDB + OAC + CF）
+#    如果 OAC 刪除失敗（仍被 distribution 引用），使用 --retain-resources
+aws cloudformation delete-stack --stack-name geo-backend --region us-east-1
+aws cloudformation wait stack-delete-complete --stack-name geo-backend --region us-east-1
+
+# 3. 銷毀 AgentCore runtime + ECR repo + S3 artifacts
+agentcore destroy
+
+# 4. 清除 AgentCore 自動建立的 IAM roles
+for ROLE in $(aws iam list-roles --query "Roles[?contains(RoleName,'BedrockAgentCoreSDK')].RoleName" --output text); do
+  for P in $(aws iam list-attached-role-policies --role-name $ROLE --query 'AttachedPolicies[].PolicyArn' --output text); do
+    aws iam detach-role-policy --role-name $ROLE --policy-arn $P
+  done
+  for P in $(aws iam list-role-policies --role-name $ROLE --query 'PolicyNames[]' --output text); do
+    aws iam delete-role-policy --role-name $ROLE --policy-name $P
+  done
+  aws iam delete-role --role-name $ROLE
+done
+
+# 5. 清除本地檔案
+rm -f .bedrock_agentcore.yaml samconfig.toml
+rm -rf .bedrock_agentcore .aws-sam .venv
+```
+
+注意：`AWSServiceRoleForBedrockAgentCoreRuntimeIdentity` 是 AWS 管理的 service-linked role，無法也不需要刪除。
+
+如果 CloudFormation stack 刪除失敗（某資源顯示 `DELETE_FAILED`，例如 OAC 仍被使用）：
+
+```bash
+# 查看哪個資源失敗
+aws cloudformation describe-stack-events --stack-name geo-backend --region us-east-1 \
+  --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
+  --output table
+
+# 跳過卡住的資源重試刪除
+aws cloudformation delete-stack --stack-name geo-backend --region us-east-1 \
+  --retain-resources <LogicalResourceId>
+```

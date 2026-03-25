@@ -234,3 +234,96 @@ curl "https://<FUNCTION_URL>/world/3149599"  # Should return 403
 curl "https://<CF_DOMAIN>/llms.txt?ua=genaibot"  # text/markdown
 curl "https://<CF_DOMAIN>/llms.txt"               # origin site content
 ```
+
+## Listing Deployed Resources
+
+### AgentCore
+
+```bash
+# Agent runtime status and ARN
+agentcore status
+
+# Execution role
+grep execution_role .bedrock_agentcore.yaml
+```
+
+### SAM / CloudFormation Stacks
+
+```bash
+# List all GEO-related stacks
+aws cloudformation list-stacks --region us-east-1 \
+  --query "StackSummaries[?contains(StackName,'geo') && StackStatus!='DELETE_COMPLETE'].[StackName,StackStatus,CreationTime]" \
+  --output table
+
+# List all resources in a stack
+aws cloudformation list-stack-resources --stack-name geo-backend --region us-east-1 \
+  --query "StackResourceSummaries[].[LogicalResourceId,ResourceType,PhysicalResourceId]" \
+  --output table
+```
+
+### CloudFront Distributions (GEO-enabled)
+
+```bash
+# Find distributions using the GEO Lambda origin
+aws cloudfront list-distributions \
+  --query "DistributionList.Items[?Origins.Items[?contains(DomainName,'lambda-url')]].{Id:Id,Domain:DomainName,Comment:Comment}" \
+  --output table
+```
+
+### IAM Roles (AgentCore auto-created)
+
+```bash
+aws iam list-roles \
+  --query "Roles[?contains(RoleName,'BedrockAgentCore')].{Name:RoleName,Created:CreateDate}" \
+  --output table
+```
+
+## Cleanup / Teardown
+
+Remove all resources in reverse order. Run from the project root with venv activated.
+
+```bash
+source .venv/bin/activate
+
+# 1. Delete additional CF distribution stacks (if any)
+aws cloudformation delete-stack --stack-name geo-cf-pchome --region us-east-1
+aws cloudformation wait stack-delete-complete --stack-name geo-cf-pchome --region us-east-1
+
+# 2. Delete backend stack (Lambda + DDB + OAC + CF)
+#    If OAC deletion fails (still referenced by a distribution), use --retain-resources
+aws cloudformation delete-stack --stack-name geo-backend --region us-east-1
+aws cloudformation wait stack-delete-complete --stack-name geo-backend --region us-east-1
+
+# 3. Destroy AgentCore runtime + ECR repo + S3 artifacts
+agentcore destroy
+
+# 4. Clean up AgentCore auto-created IAM roles
+for ROLE in $(aws iam list-roles --query "Roles[?contains(RoleName,'BedrockAgentCoreSDK')].RoleName" --output text); do
+  for P in $(aws iam list-attached-role-policies --role-name $ROLE --query 'AttachedPolicies[].PolicyArn' --output text); do
+    aws iam detach-role-policy --role-name $ROLE --policy-arn $P
+  done
+  for P in $(aws iam list-role-policies --role-name $ROLE --query 'PolicyNames[]' --output text); do
+    aws iam delete-role-policy --role-name $ROLE --policy-name $P
+  done
+  aws iam delete-role --role-name $ROLE
+done
+
+# 5. Clean local files
+rm -f .bedrock_agentcore.yaml samconfig.toml
+rm -rf .bedrock_agentcore .aws-sam .venv
+```
+
+Note: `AWSServiceRoleForBedrockAgentCoreRuntimeIdentity` is an AWS-managed service-linked role — it cannot and does not need to be deleted.
+
+If CloudFormation stack deletion fails with `DELETE_FAILED` on a resource (e.g., OAC still in use):
+
+```bash
+# Check which resource failed
+aws cloudformation describe-stack-events --stack-name geo-backend --region us-east-1 \
+  --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
+  --output table
+
+# Retry with --retain-resources to skip the stuck resource
+aws cloudformation delete-stack --stack-name geo-backend --region us-east-1 \
+  --retain-resources <LogicalResourceId>
+```
