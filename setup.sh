@@ -90,7 +90,7 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 
 # Origin host (required)
 while true; do
-    read -rp "Target origin domain (e.g. news.tvbs.com.tw): " ORIGIN_HOST
+    read -rp "Target origin domain (e.g. www-origin.example.com): " ORIGIN_HOST
     if [ -n "$ORIGIN_HOST" ]; then
         # Strip protocol prefix if user pasted a full URL
         ORIGIN_HOST=$(echo "$ORIGIN_HOST" | sed 's|^https\?://||' | sed 's|/.*||')
