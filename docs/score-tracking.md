@@ -182,6 +182,30 @@ for item in sorted_items[:10]:
 
 ## Scores Dashboard
 
+### Offline Viewer (`scripts/ddb-viewer.html`)
+
+A standalone HTML page for viewing and analyzing DDB records locally. No server required — open directly in a browser.
+
+```bash
+# 1. Export DDB data
+aws dynamodb scan --table-name geo-content --region us-east-1 --output json > /tmp/geo-content.json
+
+# 2. Open viewer in browser
+open scripts/ddb-viewer.html        # macOS
+xdg-open scripts/ddb-viewer.html    # Linux
+```
+
+Load the JSON file in the viewer. Features:
+- Search and filter by host, status, URL path
+- Sortable columns (click headers)
+- Per-dimension score breakdown (original → GEO, with +/- delta)
+- Click any row to see full metadata and GEO HTML content
+- Supports both old 3-dimension and new 5-dimension score formats
+
+### Online Dashboard
+
+A built-in web dashboard is available at each CloudFront distribution's `?action=scores` endpoint.
+
 A built-in web dashboard is available at each CloudFront distribution's `?action=scores` endpoint.
 
 ### Access

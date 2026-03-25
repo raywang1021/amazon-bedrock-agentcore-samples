@@ -183,6 +183,28 @@ for item in sorted_items[:10]:
 
 ## 分數儀表板
 
+### 離線檢視器（`scripts/ddb-viewer.html`）
+
+獨立的 HTML 頁面，可在本地瀏覽器中檢視和分析 DDB 記錄。不需要 server，直接開啟即可。
+
+```bash
+# 1. 匯出 DDB 資料
+aws dynamodb scan --table-name geo-content --region us-east-1 --output json > /tmp/geo-content.json
+
+# 2. 用瀏覽器開啟
+open scripts/ddb-viewer.html        # macOS
+xdg-open scripts/ddb-viewer.html    # Linux
+```
+
+載入 JSON 檔案後可使用：
+- 依 host、status、URL path 搜尋和篩選
+- 點擊欄位標題排序
+- 各維度分數對比（original → GEO，顯示 +/- 差值）
+- 點擊任一筆記錄查看完整 metadata 和 GEO HTML 內容
+- 同時支援舊的 3 維度和新的 5 維度分數格式
+
+### 線上儀表板
+
 每個 CloudFront distribution 都內建了分數儀表板，透過 `?action=scores` 參數存取。
 
 ### 存取方式
