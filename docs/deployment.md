@@ -285,14 +285,14 @@ Remove all resources in reverse order. Run from the project root with venv activ
 ```bash
 source .venv/bin/activate
 
-# 1. Delete additional CF distribution stacks (if any)
-aws cloudformation delete-stack --stack-name geo-cf-pchome --region us-east-1
-aws cloudformation wait stack-delete-complete --stack-name geo-cf-pchome --region us-east-1
+# 1. List all GEO-related stacks, then delete each one
+aws cloudformation list-stacks --region us-east-1 \
+  --query "StackSummaries[?contains(StackName,'geo') && StackStatus!='DELETE_COMPLETE'].[StackName]" \
+  --output text
 
-# 2. Delete backend stack (Lambda + DDB + OAC + CF)
-#    If OAC deletion fails (still referenced by a distribution), use --retain-resources
-aws cloudformation delete-stack --stack-name geo-backend --region us-east-1
-aws cloudformation wait stack-delete-complete --stack-name geo-backend --region us-east-1
+# Delete CF distribution stacks first (if any), then backend stack
+aws cloudformation delete-stack --stack-name <STACK_NAME> --region us-east-1
+aws cloudformation wait stack-delete-complete --stack-name <STACK_NAME> --region us-east-1
 
 # 3. Destroy AgentCore runtime + ECR repo + S3 artifacts
 agentcore destroy

@@ -284,14 +284,14 @@ aws iam list-roles \
 ```bash
 source .venv/bin/activate
 
-# 1. 刪除額外的 CF distribution stacks（如果有的話）
-aws cloudformation delete-stack --stack-name geo-cf-pchome --region us-east-1
-aws cloudformation wait stack-delete-complete --stack-name geo-cf-pchome --region us-east-1
+# 1. 列出所有 GEO 相關 stacks，逐一刪除
+aws cloudformation list-stacks --region us-east-1 \
+  --query "StackSummaries[?contains(StackName,'geo') && StackStatus!='DELETE_COMPLETE'].[StackName]" \
+  --output text
 
-# 2. 刪除 backend stack（Lambda + DDB + OAC + CF）
-#    如果 OAC 刪除失敗（仍被 distribution 引用），使用 --retain-resources
-aws cloudformation delete-stack --stack-name geo-backend --region us-east-1
-aws cloudformation wait stack-delete-complete --stack-name geo-backend --region us-east-1
+# 先刪 CF distribution stacks（如果有的話），再刪 backend stack
+aws cloudformation delete-stack --stack-name <STACK_NAME> --region us-east-1
+aws cloudformation wait stack-delete-complete --stack-name <STACK_NAME> --region us-east-1
 
 # 3. 銷毀 AgentCore runtime + ECR repo + S3 artifacts
 agentcore destroy
