@@ -1,0 +1,146 @@
+{
+  "timestamp": "2026-03-23T02:41:01.816246+00:00",
+  "all_passed": true,
+  "results": [
+    {
+      "site": "setn",
+      "url": "https://dlmwhof468s34.cloudfront.net/News.aspx?NewsID=1811423",
+      "started_at": "2026-03-23T02:39:49.326212+00:00",
+      "passed": true,
+      "steps": [
+        {
+          "name": "purge",
+          "passed": true,
+          "details": {
+            "status": 200
+          }
+        },
+        {
+          "name": "sync_generation",
+          "passed": true,
+          "details": {
+            "status": 200,
+            "time": "29.9s",
+            "content_length": 1594,
+            "is_html": true,
+            "X-GEO-Optimized": "true",
+            "X-GEO-Source": "generated",
+            "X-GEO-Handler-Ms": "29100",
+            "X-GEO-Duration-Ms": "28846"
+          }
+        },
+        {
+          "name": "cache_hit",
+          "passed": true,
+          "details": {
+            "status": 200,
+            "time": "0.8s",
+            "X-GEO-Optimized": "true",
+            "X-GEO-Source": "cache",
+            "X-GEO-Handler-Ms": "6",
+            "X-GEO-Duration-Ms": "28846"
+          }
+        },
+        {
+          "name": "ddb_record",
+          "passed": true,
+          "details": {
+            "ddb_key": "dlmwhof468s34.cloudfront.net#/News.aspx?NewsID=1811423",
+            "status": "ready"
+          }
+        },
+        {
+          "name": "score_tracking",
+          "passed": true,
+          "details": {
+            "original_score": 25.0,
+            "geo_score": 45.0,
+            "improvement": 20.0
+          }
+        },
+        {
+          "name": "passthrough",
+          "passed": true,
+          "details": {
+            "status": 200,
+            "time": "0.1s",
+            "X-GEO-Optimized": "true",
+            "X-GEO-Source": "cache",
+            "X-GEO-Handler-Ms": "6",
+            "X-GEO-Duration-Ms": "28846"
+          }
+        }
+      ]
+    },
+    {
+      "site": "tvbs",
+      "url": "https://dq324v08a4yas.cloudfront.net/sports/3158503",
+      "started_at": "2026-03-23T02:40:27.781614+00:00",
+      "passed": true,
+      "steps": [
+        {
+          "name": "purge",
+          "passed": true,
+          "details": {
+            "status": 200
+          }
+        },
+        {
+          "name": "sync_generation",
+          "passed": true,
+          "details": {
+            "status": 200,
+            "time": "27.2s",
+            "content_length": 1513,
+            "is_html": true,
+            "X-GEO-Optimized": "true",
+            "X-GEO-Source": "generated",
+            "X-GEO-Handler-Ms": "26490",
+            "X-GEO-Duration-Ms": "25481"
+          }
+        },
+        {
+          "name": "cache_hit",
+          "passed": true,
+          "details": {
+            "status": 200,
+            "time": "0.7s",
+            "X-GEO-Optimized": "true",
+            "X-GEO-Source": "cache",
+            "X-GEO-Handler-Ms": "12",
+            "X-GEO-Duration-Ms": "25481"
+          }
+        },
+        {
+          "name": "ddb_record",
+          "passed": true,
+          "details": {
+            "ddb_key": "dq324v08a4yas.cloudfront.net#/sports/3158503",
+            "status": "ready"
+          }
+        },
+        {
+          "name": "score_tracking",
+          "passed": true,
+          "details": {
+            "original_score": 45.0,
+            "geo_score": 75.0,
+            "improvement": 30.0
+          }
+        },
+        {
+          "name": "passthrough",
+          "passed": true,
+          "details": {
+            "status": 200,
+            "time": "0.5s",
+            "X-GEO-Optimized": "true",
+            "X-GEO-Source": "cache",
+            "X-GEO-Handler-Ms": "12",
+            "X-GEO-Duration-Ms": "25481"
+          }
+        }
+      ]
+    }
+  ]
+}

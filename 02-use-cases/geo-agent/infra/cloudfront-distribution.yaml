@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudFront distribution for GEO Edge Serving (new distribution).
+  Creates a distribution with the origin site as default origin,
+  GEO Lambda as secondary origin, and CFF for bot routing.
+
+Parameters:
+  OriginDomain:
+    Type: String
+    Description: Origin site domain (e.g. www.setn.com, today.line.me)
+  OriginProtocolPolicy:
+    Type: String
+    Default: https-only
+    AllowedValues: [https-only, http-only, match-viewer]
+    Description: Protocol policy for the origin site
+  GeoFunctionUrlDomain:
+    Type: String
+    Description: >-
+      Lambda Function URL domain (without https://).
+      Get from geo-backend stack output: FunctionUrl
+  GeoOacId:
+    Type: String
+    Description: >-
+      OAC ID for Lambda Function URL.
+      Get from geo-backend stack output: OacId
+  OriginVerifySecret:
+    Type: String
+    Default: "geo-agent-cf-origin-2026"
+    Description: Shared secret for x-origin-verify header
+  PriceClass:
+    Type: String
+    Default: PriceClass_All
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+
+Resources:
+  GeoCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AWS::StackName}-geo-cache-policy"
+        DefaultTTL: 0
+        MaxTTL: 86400
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig:
+            HeaderBehavior: whitelist
+            Headers:
+              - x-geo-bot
+              - x-original-host
+          CookiesConfig:
+            CookieBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: whitelist
+            QueryStrings:
+              - action
+              - mode
+              - purge
+              - ua
+
+  GeoOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-geo-origin-request"
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers:
+            - x-geo-bot
+            - x-geo-bot-ua
+            - x-original-host
+            - x-origin-verify
+        CookiesConfig:
+          CookieBehavior: none
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
+  GeoCff:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "geo-bot-router-${AWS::StackName}"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: !Sub "GEO bot router for ${OriginDomain}"
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        import cf from 'cloudfront';
+        var AI_BOT_PATTERNS = [
+          'gptbot', 'oai-searchbot', 'chatgpt-user',
+          'claudebot', 'claude-web', 'claude-user',
+          'perplexitybot', 'perplexity-user',
+          'google-extended', 'googleother',
+          'bingbot', 'copilot',
+          'meta-externalagent', 'facebookbot',
+          'applebot', 'applebot-extended',
+          'cohere-ai', 'amazonbot', 'bytespider', 'ccbot', 'diffbot', 'youbot'
+        ];
+        var GEO_ORIGIN_ID = 'geo-lambda-origin';
+        function handler(event) {
+          var request = event.request;
+          var ua = (request.headers['user-agent'] && request.headers['user-agent'].value) || '';
+          var uaLower = ua.toLowerCase();
+          var isAiBot = false;
+          for (var i = 0; i < AI_BOT_PATTERNS.length; i++) {
+            if (uaLower.indexOf(AI_BOT_PATTERNS[i]) !== -1) { isAiBot = true; break; }
+          }
+          if (!isAiBot && request.querystring && request.querystring.ua && request.querystring.ua.value === 'genaibot') {
+            isAiBot = true;
+          }
+          if (isAiBot) {
+            request.headers['x-geo-bot'] = { value: 'true' };
+            request.headers['x-geo-bot-ua'] = { value: ua };
+            request.headers['x-original-host'] = { value: request.headers['host'] ? request.headers['host'].value : '' };
+            cf.selectRequestOriginById(GEO_ORIGIN_ID);
+          }
+          return request;
+        }
+
+  GeoDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "GEO Edge Serving - ${OriginDomain}"
+        PriceClass: !Ref PriceClass
+        HttpVersion: http2and3
+        DefaultRootObject: ""
+        Origins:
+          - Id: default-origin
+            DomainName: !Ref OriginDomain
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: !Ref OriginProtocolPolicy
+              OriginSSLProtocols:
+                - TLSv1.2
+          - Id: geo-lambda-origin
+            DomainName: !Ref GeoFunctionUrlDomain
+            OriginPath: ""
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+              OriginReadTimeout: 85
+              OriginKeepaliveTimeout: 5
+            OriginAccessControlId: !Ref GeoOacId
+            OriginCustomHeaders:
+              - HeaderName: x-origin-verify
+                HeaderValue: !Ref OriginVerifySecret
+        DefaultCacheBehavior:
+          TargetOriginId: default-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: !Ref GeoCachePolicy
+          OriginRequestPolicyId: !Ref GeoOriginRequestPolicy
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt GeoCff.FunctionMetadata.FunctionARN
+
+Outputs:
+  DistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref GeoDistribution
+  DistributionArn:
+    Description: CloudFront Distribution ARN (use as CloudFrontDistributionArn in geo-backend stack)
+    Value: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${GeoDistribution}"
+  DistributionDomain:
+    Description: CloudFront Distribution domain name
+    Value: !GetAtt GeoDistribution.DomainName
+  CffArn:
+    Description: CloudFront Function ARN
+    Value: !GetAtt GeoCff.FunctionMetadata.FunctionARN
