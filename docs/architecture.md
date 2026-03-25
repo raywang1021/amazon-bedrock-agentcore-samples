@@ -344,6 +344,21 @@ CloudFront OAC + Lambda Function URL (`AuthType: AWS_IAM`):
 3. Lambda permission restricts which CloudFront distributions can invoke
 4. `x-origin-verify` custom header as defense-in-depth
 
+`x-origin-verify` is set by CloudFront's origin custom headers (not by CFF) and verified by the Lambda handler. All CF distributions sharing the same Lambda must use the same secret value.
+
+The default secret (`geo-agent-cf-origin-YYYY`) is suitable for demo/POC. For production, generate a unique secret per deployment:
+
+```bash
+# Generate random secret
+openssl rand -hex 16
+
+# Use in setup.sh when prompted, and pass to cloudfront-distribution.yaml:
+sam deploy -t infra/cloudfront-distribution.yaml \
+  --parameter-overrides OriginVerifySecret=<SAME_SECRET> ...
+```
+
+Consider storing the secret in AWS Secrets Manager or SSM Parameter Store for centralized management across multiple distributions.
+
 ## Lambda Functions
 
 | Lambda | Purpose | Notes |

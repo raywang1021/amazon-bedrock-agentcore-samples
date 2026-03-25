@@ -164,11 +164,21 @@ def _invoke_agentcore_sync(url):
                 if line:
                     d = line.decode("utf-8")
                     if d.startswith("data: "):
-                        parts.append(d[6:])
+                        chunk = d[6:]
+                        # SSE data chunks may be JSON-encoded strings
+                        if chunk.startswith('"') and chunk.endswith('"'):
+                            try:
+                                chunk = json.loads(chunk)
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+                        parts.append(chunk)
         else:
             for chunk in resp.get("response", []):
                 parts.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk))
-        return "".join(parts) if parts else None
+        result = "".join(parts) if parts else None
+        if result:
+            result = result.replace('\\n', '\n').replace('\\"', '"')
+        return result
     except Exception as e:
         print(f"AgentCore sync failed: {e}")
         return None

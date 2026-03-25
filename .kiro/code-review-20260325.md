@@ -8,53 +8,29 @@ Overall the codebase is well-structured with clear separation of concerns. The m
 
 ## Critical
 
-### 1. `OriginVerifySecret` hardcoded as default in multiple places
-- `infra/template.yaml`: `Default: "geo-agent-cf-origin-2026"`
-- `infra/cloudfront-distribution.yaml`: `Default: "geo-agent-cf-origin-2026"`
-- `geo_content_handler.py`: `ORIGIN_VERIFY_SECRET = os.environ.get("ORIGIN_VERIFY_SECRET", "geo-agent-cf-origin-2026")`
-- Anyone reading the repo knows the default secret. If a user deploys without changing it, the Lambda is callable by anyone who sets the header.
-- **Fix**: Remove the default from handler code (require it via env var), or generate a random secret in `setup.sh`.
+### 1. `OriginVerifySecret` hardcoded as default in multiple places — KEPT (documented)
+- Default is suitable for demo/POC. Production guidance added to architecture docs.
+- All CF distributions sharing the same Lambda must use the same secret value.
 
-### 2. `store_geo_content` DDB key uses `parsed.netloc` (origin host), but edge serving uses `{cf-domain}#{path}`
-- When agent runs via `agentcore invoke`, it stores with key like `www.setn.com#/path`
-- When edge serving triggers via CF, generator looks for `d123.cloudfront.net#/path`
-- The generator has fallback logic to check both keys, but this creates duplicate DDB records for the same content.
-- **Impact**: Wasted storage, potential stale data inconsistency.
-- **Fix**: Consider normalizing keys to always use origin host, or cleaning up the agent-written key after copying.
+### 2. `store_geo_content` DDB key uses `parsed.netloc` — DEFERRED
+- Generator fallback logic handles the key mismatch. Low risk, high change cost.
 
-### 3. AgentCore execution role missing `lambda:InvokeFunction` permission
-- `setup.sh` auto-creates the role but doesn't add Lambda invoke permission.
-- `store_geo_content` tool needs to call `geo-content-storage` Lambda.
-- This causes silent fallback to the generator's HTML extraction path (with `\\n` artifacts).
-- **Fix**: Add `lambda:InvokeFunction` policy to the role in `setup.sh` after `agentcore deploy`, or document it as a required manual step.
+### 3. AgentCore execution role missing `lambda:InvokeFunction` permission — FIXED
+- `setup.sh` now auto-adds `geo-lambda-invoke` inline policy after `agentcore deploy`.
 
 ---
 
 ## High
 
-### 4. `_invoke_agentcore_sync` in handler doesn't unescape SSE artifacts
-- `geo_content_handler.py` `_invoke_agentcore_sync()` has the same SSE streaming parsing as `geo_generator.py` but without the JSON decode fix or unescape logic.
-- If sync mode falls through to raw response parsing, it will have the same `\\n` / `""` corruption.
-- **Fix**: Apply the same SSE chunk decoding and unescape logic from `geo_generator.py`.
+### 4. `_invoke_agentcore_sync` in handler doesn't unescape SSE artifacts — FIXED
 
-### 5. `evaluate_geo_score` docstring still says "three dimensions"
-- The docstring says "Returns scores for each perspective across three dimensions: cited_sources, statistical_addition, and authoritative" but the actual prompt now uses 5 dimensions.
-- **Fix**: Update the docstring.
+### 5. `evaluate_geo_score` docstring still says "three dimensions" — FIXED
 
-### 6. `samconfig.toml` committed with account-specific values
-- Contains `CloudFrontDistributionArn` with account `023268648855` and distribution ID `E36FNTEQL5839Z`.
-- `samconfig.toml.example` exists but the real file is also tracked.
-- **Fix**: Add `samconfig.toml` to `.gitignore` (keep only `.example`), or ensure `setup.sh` always regenerates it.
+### 6. `samconfig.toml` committed with account-specific values — FIXED
+- Removed from git tracking (`git rm --cached`). Already in `.gitignore`.
 
----
-
-## Medium
-
-### 7. `template.yaml` cache policy still uses whitelist querystrings
-- `template.yaml`'s `GeoCachePolicy` (for `CreateDistribution=true`) uses `QueryStringBehavior: whitelist` with `[action, mode, purge, ua]`.
-- `cloudfront-distribution.yaml` was updated to `QueryStringBehavior: all`.
-- These are inconsistent — the template.yaml version may break origin sites that need other querystrings.
-- **Fix**: Align `template.yaml`'s cache policy with `cloudfront-distribution.yaml` (use `all`).
+### 7. `template.yaml` cache policy still uses whitelist querystrings — FIXED
+- Changed to `QueryStringBehavior: all`, removed `GeoOriginRequestPolicy` resource.
 
 ### 8. `rewrite_content.py` output includes `=== REWRITTEN CONTENT END ===` marker
 - This marker leaks into the fallback path in `geo_generator.py` (visible in DDB data).

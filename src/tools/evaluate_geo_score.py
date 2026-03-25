@@ -172,8 +172,8 @@ def evaluate_geo_score(url: str) -> str:
     2. original: Fetches the clean URL with normal UA (strips GEO trigger params).
     3. geo: Fetches the clean URL with AI bot UA to get the GEO-optimized version.
 
-    Returns scores for each perspective across three dimensions:
-    cited_sources, statistical_addition, and authoritative.
+    Returns scores for each perspective across five weighted dimensions:
+    authority (25%), freshness (20%), relevance (30%), structure (15%), readability (10%).
 
     Args:
         url: The full URL of the web page to evaluate.

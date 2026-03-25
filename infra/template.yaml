@@ -131,30 +131,7 @@ Resources:
           CookiesConfig:
             CookieBehavior: none
           QueryStringsConfig:
-            QueryStringBehavior: whitelist
-            QueryStrings:
-              - action
-              - mode
-              - purge
-              - ua
-
-  GeoOriginRequestPolicy:
-    Type: AWS::CloudFront::OriginRequestPolicy
-    Condition: ShouldCreateDistribution
-    Properties:
-      OriginRequestPolicyConfig:
-        Name: !Sub "${AWS::StackName}-geo-origin-request"
-        HeadersConfig:
-          HeaderBehavior: whitelist
-          Headers:
-            - x-geo-bot
-            - x-geo-bot-ua
-            - x-original-host
-            - x-origin-verify
-        CookiesConfig:
-          CookieBehavior: none
-        QueryStringsConfig:
-          QueryStringBehavior: all
+            QueryStringBehavior: all
 
   GeoBotRouterFunction:
     Type: AWS::CloudFront::Function
@@ -242,7 +219,6 @@ Resources:
           CachedMethods: [GET, HEAD]
           Compress: true
           CachePolicyId: !Ref GeoCachePolicy
-          OriginRequestPolicyId: !Ref GeoOriginRequestPolicy
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !GetAtt GeoBotRouterFunction.FunctionMetadata.FunctionARN

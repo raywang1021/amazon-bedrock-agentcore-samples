@@ -207,7 +207,7 @@ else
     echo "  → CFF will be attached to: ${CFF_BEHAVIOR_PATH}"
 fi
 
-# Origin verify secret
+# Origin verify secret (defense-in-depth header between CF and Lambda)
 DEFAULT_SECRET="geo-agent-cf-origin-$(date +%Y)"
 read -rp "Origin verify secret [$DEFAULT_SECRET]: " ORIGIN_SECRET
 ORIGIN_SECRET="${ORIGIN_SECRET:-$DEFAULT_SECRET}"
@@ -421,6 +421,25 @@ if [ -z "$AGENT_ARN" ] || [ "$AGENT_ARN" = "null" ]; then
     exit 1
 fi
 echo "  ✓ Agent deployed: ${AGENT_ARN}"
+
+# Add Lambda invoke permission to AgentCore execution role
+# (store_geo_content tool needs to call geo-content-storage Lambda)
+AC_ROLE_ARN=$(grep 'execution_role:' .bedrock_agentcore.yaml | head -1 | awk '{print $2}')
+if [ -n "$AC_ROLE_ARN" ] && [ "$AC_ROLE_ARN" != "null" ]; then
+    AC_ROLE_NAME=$(echo "$AC_ROLE_ARN" | sed 's|.*/||')
+    echo "  Adding lambda:InvokeFunction permission to ${AC_ROLE_NAME}..."
+    aws iam put-role-policy \
+        --role-name "$AC_ROLE_NAME" \
+        --policy-name geo-lambda-invoke \
+        --policy-document "{
+            \"Version\": \"2012-10-17\",
+            \"Statement\": [{
+                \"Effect\": \"Allow\",
+                \"Action\": [\"lambda:InvokeFunction\"],
+                \"Resource\": \"arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT}:function:geo-content-*\"
+            }]
+        }" 2>/dev/null && echo "  ✓ Lambda invoke permission added" || echo "  ⚠ Failed to add Lambda permission (add manually)"
+fi
 
 # Update samconfig.toml with AgentRuntimeArn
 sed -i.bak "s|parameter_overrides = \"|parameter_overrides = \"AgentRuntimeArn=\\\\\"${AGENT_ARN}\\\\\" |" samconfig.toml

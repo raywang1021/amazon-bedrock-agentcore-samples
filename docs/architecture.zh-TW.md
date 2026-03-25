@@ -344,6 +344,21 @@ CloudFront OAC + Lambda Function URL（`AuthType: AWS_IAM`）：
 3. Lambda permission 限制指定的 CloudFront distribution 可以 invoke
 4. `x-origin-verify` custom header 作為 defense-in-depth
 
+`x-origin-verify` 由 CloudFront 的 origin custom headers 設定（不是 CFF），Lambda handler 驗證。所有共用同一個 Lambda 的 CF distribution 必須使用相同的 secret 值。
+
+預設 secret（`geo-agent-cf-origin-YYYY`）適用於 demo/POC。正式環境建議為每次部署生成唯一 secret：
+
+```bash
+# 生成隨機 secret
+openssl rand -hex 16
+
+# 在 setup.sh 提示時輸入，並在 cloudfront-distribution.yaml 部署時帶入：
+sam deploy -t infra/cloudfront-distribution.yaml \
+  --parameter-overrides OriginVerifySecret=<相同的 SECRET> ...
+```
+
+可考慮將 secret 存放在 AWS Secrets Manager 或 SSM Parameter Store，方便多個 distribution 集中管理。
+
 ## Lambda 函數一覽
 
 | Lambda | 用途 | 備註 |
