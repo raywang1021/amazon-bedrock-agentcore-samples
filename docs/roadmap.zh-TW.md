@@ -35,6 +35,7 @@
 - [ ] Sync mode 效能優化（目前約 30s）
 
 ### 功能
+- [ ] 透過 SSM Parameter Store 動態切換模型（免 redeploy 即可更換 MODEL_ID）
 - [ ] 多語言 GEO 內容支援
 - [ ] GEO 內容版本管理
 - [ ] A/B 測試框架（比較不同改寫策略）

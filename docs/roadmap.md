@@ -35,6 +35,7 @@
 - [ ] Sync mode optimization (currently ~30s)
 
 ### Features
+- [ ] Dynamic model switching via SSM Parameter Store (avoid redeploy when changing MODEL_ID)
 - [ ] Multi-language GEO content support
 - [ ] GEO content versioning
 - [ ] A/B testing framework for rewrite strategies
