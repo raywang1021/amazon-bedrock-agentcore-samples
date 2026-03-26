@@ -105,29 +105,63 @@ def show_statistics(items: List[Dict[str, Any]]):
         print(f"  範圍: {min(geo_scores):.0f} - {max(geo_scores):.0f}")
         print()
     
-    # 維度分析
-    dimensions = ["cited_sources", "statistical_addition", "authoritative"]
-    print("各維度平均改善:")
-    for dim in dimensions:
-        original_dim = []
-        geo_dim = []
-        for item in items:
-            if ("original_score" in item and "dimensions" in item["original_score"] and
-                dim in item["original_score"]["dimensions"]):
-                original_dim.append(float(item["original_score"]["dimensions"][dim]["score"]))
-            if ("geo_score" in item and "dimensions" in item["geo_score"] and
-                dim in item["geo_score"]["dimensions"]):
-                geo_dim.append(float(item["geo_score"]["dimensions"][dim]["score"]))
-        
-        if original_dim and geo_dim:
-            avg_original = sum(original_dim) / len(original_dim)
-            avg_geo = sum(geo_dim) / len(geo_dim)
-            improvement = avg_geo - avg_original
-            print(f"  {dim:25s}: {avg_original:5.1f} → {avg_geo:5.1f} (+{improvement:5.1f})")
+    # 維度分析 (auto-detect dimensions)
+    dimensions = _detect_dimensions(items)
+    if dimensions:
+        print("各維度平均改善:")
+        for dim in dimensions:
+            original_dim = []
+            geo_dim = []
+            for item in items:
+                o = _get_dim_score(item.get("original_score"), dim)
+                g = _get_dim_score(item.get("geo_score"), dim)
+                if o is not None:
+                    original_dim.append(o)
+                if g is not None:
+                    geo_dim.append(g)
+            
+            if original_dim and geo_dim:
+                avg_original = sum(original_dim) / len(original_dim)
+                avg_geo = sum(geo_dim) / len(geo_dim)
+                improvement = avg_geo - avg_original
+                label = DIM_LABELS.get(dim, dim)
+                print(f"  {label:10s} ({dim:20s}): {avg_original:5.1f} → {avg_geo:5.1f} (+{improvement:5.1f})")
+
+
+def _get_dim_score(score_obj, dim_key):
+    """Extract a dimension score from a score object (supports both old and new formats)."""
+    if not score_obj or "dimensions" not in score_obj:
+        return None
+    d = score_obj["dimensions"].get(dim_key)
+    if d is None:
+        return None
+    if isinstance(d, dict) and "score" in d:
+        return float(d["score"])
+    if isinstance(d, (int, float, Decimal)):
+        return float(d)
+    return None
+
+
+def _detect_dimensions(items):
+    """Return the 5 scoring dimensions (fixed order)."""
+    return ["authority", "freshness", "relevance", "structure", "readability"]
+
+
+# Short labels for dimension names
+DIM_LABELS = {
+    "authority": "auth",
+    "freshness": "fresh",
+    "relevance": "rel",
+    "structure": "struct",
+    "readability": "read",
+    "cited_sources": "cite",
+    "statistical_addition": "stat",
+    "authoritative": "auth",
+}
 
 
 def show_top_improvements(items: List[Dict[str, Any]], limit: int = 10):
-    """顯示改善最大的項目。"""
+    """顯示改善最大的項目，含各維度分拆。"""
     if not items:
         print("沒有找到包含分數的項目。")
         return
@@ -138,11 +172,16 @@ def show_top_improvements(items: List[Dict[str, Any]], limit: int = 10):
         reverse=True
     )
     
-    print("=" * 120)
+    dims = _detect_dimensions(items)
+    
+    print("=" * 140)
     print(f"改善最大的前 {limit} 項")
-    print("=" * 120)
-    print(f"{'Original':<10} {'GEO':<10} {'改善':<10} URL Path")
-    print("-" * 120)
+    print("=" * 140)
+    
+    # Header
+    dim_header = "  ".join(f"{DIM_LABELS.get(d, d[:5]):>5s}" for d in dims)
+    print(f"{'Orig':<6} {'GEO':<6} {'Δ':<6} │ {dim_header}  │ URL Path")
+    print("-" * 140)
     
     for item in sorted_items[:limit]:
         url_path = item["url_path"]
@@ -150,7 +189,21 @@ def show_top_improvements(items: List[Dict[str, Any]], limit: int = 10):
         geo = float(item.get("geo_score", {}).get("overall_score", 0))
         improvement = float(item.get("score_improvement", 0))
         
-        print(f"{original:<10.1f} {geo:<10.1f} +{improvement:<9.1f} {url_path}")
+        # Dimension breakdown: orig→geo(Δ)
+        dim_parts = []
+        for d in dims:
+            o = _get_dim_score(item.get("original_score"), d)
+            g = _get_dim_score(item.get("geo_score"), d)
+            if o is not None and g is not None:
+                delta = g - o
+                sign = "+" if delta > 0 else ""
+                dim_parts.append(f"{sign}{delta:>3.0f}")
+            else:
+                dim_parts.append("   -")
+        dim_str = "  ".join(f"{p:>5s}" for p in dim_parts)
+        
+        sign = "+" if improvement > 0 else ""
+        print(f"{original:<6.0f} {geo:<6.0f} {sign}{improvement:<5.0f} │ {dim_str}  │ {url_path}")
 
 
 def show_url_details(items: List[Dict[str, Any]], url_path: str):
