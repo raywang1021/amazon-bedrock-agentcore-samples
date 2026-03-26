@@ -366,3 +366,4 @@ sam deploy -t infra/cloudfront-distribution.yaml \
 | `geo-content-handler` | 讀取 DDB 回傳 GEO 內容 | Function URL + OAC，多租戶 |
 | `geo-content-generator` | 非同步呼叫 AgentCore | 由 handler 觸發 |
 | `geo-content-storage` | Agent 寫入 DDB | 含 HTML 驗證，支援 `update_scores` action 僅更新分數欄位 |
+| `cf-origin-setup` | Custom Resource：自動設定既有 CF distribution | 僅在 `SetupCfOrigin=true` 時建立。為既有 distribution 加上 geo-lambda-origin + OAC + CFF |

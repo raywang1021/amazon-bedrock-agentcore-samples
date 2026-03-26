@@ -366,3 +366,4 @@ Consider storing the secret in AWS Secrets Manager or SSM Parameter Store for ce
 | `geo-content-handler` | Reads DDB and returns GEO content | Function URL + OAC, multi-tenant |
 | `geo-content-generator` | Async invocation of AgentCore | Triggered by handler |
 | `geo-content-storage` | Agent writes to DDB | Includes HTML validation, supports `update_scores` action for score-only updates |
+| `cf-origin-setup` | Custom Resource: auto-configures existing CF distribution | Only created when `SetupCfOrigin=true`. Adds geo-lambda-origin + OAC + CFF to an existing distribution |
