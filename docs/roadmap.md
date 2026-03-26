@@ -27,7 +27,7 @@
 
 ## In Progress
 
-- [ ] Clean up OAC test stack
+(none)
 
 ## Backlog
 
