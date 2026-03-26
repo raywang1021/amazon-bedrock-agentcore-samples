@@ -45,20 +45,16 @@ infra/
 ## Quick Start
 
 ```bash
-# 1. Environment setup (generates venv + samconfig.toml + .bedrock_agentcore.yaml)
+# 1. Setup + Deploy (one command — installs deps, configures, deploys AgentCore + infra)
 ./setup.sh
-source .venv/bin/activate
 
-# 2. Deploy
-agentcore deploy
-sam build -t infra/template.yaml
-sam deploy -t infra/template.yaml
-
-# 5. Query score tracking data
+# 2. Query score tracking data
 python scripts/query_scores.py --stats        # Show statistics
 python scripts/query_scores.py --top 10       # Top 10 improvements
 python scripts/query_scores.py --url /path    # Query specific URL
 ```
+
+`setup.sh` handles everything interactively: venv creation, `samconfig.toml` + `.bedrock_agentcore.yaml` generation, `agentcore deploy`, and `sam deploy`. After the initial config prompts, it asks "Deploy now?" — answering Y runs the full deployment automatically.
 
 ## Environment Variables
 

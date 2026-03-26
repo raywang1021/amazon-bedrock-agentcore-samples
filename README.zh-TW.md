@@ -45,19 +45,16 @@ infra/
 ## 快速開始
 
 ```bash
-# 1. 環境設定（自動產生 venv + samconfig.toml + .bedrock_agentcore.yaml）
+# 1. 設定 + 部署（一行搞定 — 安裝依賴、設定、部署 AgentCore + 基礎設施）
 ./setup.sh
-source .venv/bin/activate
 
-# 2. 部署
-agentcore deploy
-sam build -t infra/template.yaml
-sam deploy -t infra/template.yaml
-
-# 5. 查詢分數追蹤資料
+# 2. 查詢分數追蹤資料
 python scripts/query_scores.py --stats        # 顯示統計
 python scripts/query_scores.py --top 10       # 前 10 名改善
 python scripts/query_scores.py --url /path    # 查詢特定 URL
+```
+
+`setup.sh` 以互動方式處理所有步驟：建立 venv、產生 `samconfig.toml` + `.bedrock_agentcore.yaml`、執行 `agentcore deploy` 和 `sam deploy`。填完設定後會詢問「Deploy now?」— 回答 Y 即自動完成完整部署。
 ```
 
 ## 環境變數
