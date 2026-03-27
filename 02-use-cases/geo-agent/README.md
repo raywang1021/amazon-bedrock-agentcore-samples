@@ -2,7 +2,9 @@
 
 Generative Engine Optimization (GEO) agent deployed via Bedrock AgentCore, with CloudFront OAC + Lambda Function URL for edge serving. AI search engine crawlers receive GEO-optimized content automatically.
 
-> [繁體中文版 README](README.zh-TW.md)
+## Archiecture
+The architecture routes AI bot traffic (e.g., GPTBot, ClaudeBot) through CloudFront to a geo-bot-router that detects bots and directs them into a GEO processing pipeline, while normal users are sent directly to the origin site; for bot requests, a Lambda-based geo-content-handler first checks DynamoDB for cached GEO content and, on a miss, fetches the original content and asynchronously triggers a geo-content-generator, which invokes a GEO Agent (AgentCore) to orchestrate LLM generation (Claude Sonnet 4 with guardrails) and optional scoring/storage via Lambda, with results written back to DynamoDB for future cache hits, enabling a low-latency, cost-efficient, edge-first design that separates routing, generation, and intelligence layers.
+![image](https://github.com/user-attachments/assets/90eb5949-7b92-479d-9fe7-8422937ee642)
 
 ## Features
 
