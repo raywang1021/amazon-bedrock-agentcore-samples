@@ -92,8 +92,8 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 while true; do
     read -rp "Target origin domain (e.g. www-origin.example.com): " ORIGIN_HOST
     if [ -n "$ORIGIN_HOST" ]; then
-        # Strip protocol prefix if user pasted a full URL
-        ORIGIN_HOST=$(echo "$ORIGIN_HOST" | sed 's|^https\?://||' | sed 's|/.*||')
+        # Strip protocol prefix, path, and port if user pasted a full URL
+        ORIGIN_HOST=$(echo "$ORIGIN_HOST" | sed -E 's|^https?://||' | sed 's|/.*||' | sed 's|:.*||')
         break
     fi
     echo "  ⚠ Origin domain is required."
@@ -134,7 +134,7 @@ if [ -z "$CF_INPUT" ]; then
 else
     # --- Use existing distribution ---
     # Normalize input: strip protocol, extract ID or domain
-    CF_INPUT=$(echo "$CF_INPUT" | sed 's|^https\?://||' | sed 's|/.*||')
+    CF_INPUT=$(echo "$CF_INPUT" | sed -E 's|^https?://||' | sed 's|/.*||')
 
     # If it looks like a domain (contains '.'), look up the distribution ID
     if echo "$CF_INPUT" | grep -q '\.'; then
@@ -442,21 +442,22 @@ if [ -n "$AC_ROLE_ARN" ] && [ "$AC_ROLE_ARN" != "null" ]; then
 fi
 
 # Update samconfig.toml with AgentRuntimeArn using Python (more robust than sed)
-python3 << PYEOF
-import re
-arn = "${AGENT_ARN}"
-with open("samconfig.toml", "r") as f:
+python3 -c "
+import re, os
+arn = '${AGENT_ARN}'
+with open('samconfig.toml', 'r') as f:
     content = f.read()
-# Remove any existing AgentRuntimeArn
-content = re.sub(r'AgentRuntimeArn=\\\\"[^\\"]*\\\\"\\s*', '', content)
+# Remove any existing AgentRuntimeArn entry
+content = re.sub(r'AgentRuntimeArn=\\\\\"[^\"]*\\\\\"\\s*', '', content)
 # Insert at the start of parameter_overrides
-old = 'parameter_overrides = "'
-new = f'parameter_overrides = "AgentRuntimeArn=\\\\"{arn}\\\\" '
-content = content.replace(old, new)
-with open("samconfig.toml", "w") as f:
+content = content.replace(
+    'parameter_overrides = \"',
+    'parameter_overrides = \"AgentRuntimeArn=\\\\\"' + arn + '\\\\\" '
+)
+with open('samconfig.toml', 'w') as f:
     f.write(content)
-print(f"  ✓ samconfig.toml updated with AgentRuntimeArn={arn}")
-PYEOF
+print(f'  ✓ samconfig.toml updated with AgentRuntimeArn={arn}')
+"
 
 echo ""
 echo "==> [6/6] Deploying infrastructure (Lambda + DDB + OAC)..."

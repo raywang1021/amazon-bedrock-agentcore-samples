@@ -203,7 +203,6 @@ def handler(event, context):
         # Unescape common artifacts from SSE streaming response
         geo_content = geo_content.replace('\\n', '\n')
         geo_content = geo_content.replace('\\"', '"')
-        geo_content = geo_content.replace('""', '"')
         # Clean up any trailing markers
         geo_content = re.sub(r'\s*===\s*REWRITTEN CONTENT END\s*===\s*$', '', geo_content).strip()
     else:

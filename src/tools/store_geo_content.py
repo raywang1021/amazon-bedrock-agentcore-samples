@@ -95,12 +95,12 @@ Return ONLY a JSON object:
 Calculate overall_score using the exact weights above. Round to nearest integer."""
 
     model = load_model(temperature=0.1)
-    evaluator = Agent(model=model, system_prompt=eval_prompt, tools=[])
 
     import time as _time
     max_retries = 3
     for attempt in range(max_retries):
         try:
+            evaluator = Agent(model=model, system_prompt=eval_prompt, tools=[])
             result = str(evaluator(f"Evaluate ({label}):\n\n{content[:12000]}"))
             json_match = _re.search(r'\{.*\}', result, _re.DOTALL)
             if json_match:

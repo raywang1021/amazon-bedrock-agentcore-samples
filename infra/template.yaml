@@ -187,7 +187,7 @@ Resources:
         DefaultRootObject: ""
         Origins:
           # Primary origin: the actual website
-          - Id: !Sub "${DefaultOriginHost}"
+          - Id: default-origin
             DomainName: !Ref DefaultOriginHost
             CustomOriginConfig:
               HTTPPort: 80
@@ -213,7 +213,7 @@ Resources:
               - HeaderName: x-origin-verify
                 HeaderValue: !Ref OriginVerifySecret
         DefaultCacheBehavior:
-          TargetOriginId: !Sub "${DefaultOriginHost}"
+          TargetOriginId: default-origin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD]

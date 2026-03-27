@@ -455,11 +455,28 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
         agent_duration_ms = int((time.time() - start) * 1000)
 
         # Re-read DDB — agent should have stored content
+        # Check handler's key first, then agent's key (origin host-based)
         try:
             resp = table.get_item(Key={"url_path": ddb_key})
             item = resp.get("Item")
         except Exception:
             item = None
+
+        # Agent may have stored under origin host key instead of CF domain key
+        if not item or not item.get("geo_content"):
+            from urllib.parse import urlparse as _urlparse
+            _parsed = _urlparse(original_url)
+            if _parsed.netloc:
+                _agent_path = _parsed.path or "/"
+                if _parsed.query:
+                    _agent_path = f"{_agent_path}?{_parsed.query}"
+                _agent_key = f"{_parsed.netloc}#{_agent_path}"
+                if _agent_key != ddb_key:
+                    try:
+                        resp = table.get_item(Key={"url_path": _agent_key})
+                        item = resp.get("Item")
+                    except Exception:
+                        pass
 
         handler_ms = int((time.time() - handler_start) * 1000)
 
