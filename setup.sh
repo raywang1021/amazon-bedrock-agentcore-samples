@@ -441,10 +441,22 @@ if [ -n "$AC_ROLE_ARN" ] && [ "$AC_ROLE_ARN" != "null" ]; then
         }" 2>/dev/null && echo "  ✓ Lambda invoke permission added" || echo "  ⚠ Failed to add Lambda permission (add manually)"
 fi
 
-# Update samconfig.toml with AgentRuntimeArn
-sed -i.bak "s|parameter_overrides = \"|parameter_overrides = \"AgentRuntimeArn=\\\\\"${AGENT_ARN}\\\\\" |" samconfig.toml
-rm -f samconfig.toml.bak
-echo "  ✓ samconfig.toml updated with AgentRuntimeArn"
+# Update samconfig.toml with AgentRuntimeArn using Python (more robust than sed)
+python3 << PYEOF
+import re
+arn = "${AGENT_ARN}"
+with open("samconfig.toml", "r") as f:
+    content = f.read()
+# Remove any existing AgentRuntimeArn
+content = re.sub(r'AgentRuntimeArn=\\\\"[^\\"]*\\\\"\\s*', '', content)
+# Insert at the start of parameter_overrides
+old = 'parameter_overrides = "'
+new = f'parameter_overrides = "AgentRuntimeArn=\\\\"{arn}\\\\" '
+content = content.replace(old, new)
+with open("samconfig.toml", "w") as f:
+    f.write(content)
+print(f"  ✓ samconfig.toml updated with AgentRuntimeArn={arn}")
+PYEOF
 
 echo ""
 echo "==> [6/6] Deploying infrastructure (Lambda + DDB + OAC)..."

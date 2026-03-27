@@ -23,4 +23,4 @@ def rewrite_content_for_geo(content: str) -> str:
     model = load_model()
     rewriter = Agent(model=model, system_prompt=REWRITE_SYSTEM_PROMPT, tools=[])
     result = rewriter(content)
-    return f"=== REWRITTEN CONTENT START ===\n{str(result)}\n=== REWRITTEN CONTENT END ==="
+    return str(result)

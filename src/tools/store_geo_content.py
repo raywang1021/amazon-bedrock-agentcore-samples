@@ -96,14 +96,22 @@ Calculate overall_score using the exact weights above. Round to nearest integer.
 
     model = load_model(temperature=0.1)
     evaluator = Agent(model=model, system_prompt=eval_prompt, tools=[])
-    result = str(evaluator(f"Evaluate ({label}):\n\n{content[:12000]}"))
 
-    try:
-        json_match = _re.search(r'\{.*\}', result, _re.DOTALL)
-        if json_match:
-            return _json.loads(json_match.group())
-    except (_json.JSONDecodeError, AttributeError):
-        pass
+    import time as _time
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            result = str(evaluator(f"Evaluate ({label}):\n\n{content[:12000]}"))
+            json_match = _re.search(r'\{.*\}', result, _re.DOTALL)
+            if json_match:
+                return _json.loads(json_match.group())
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"Scoring attempt {attempt + 1} failed ({e}), retrying in {wait}s...")
+                _time.sleep(wait)
+            else:
+                print(f"Scoring failed after {max_retries} attempts: {e}")
     return {"overall_score": 0, "dimensions": {}}
 
 
