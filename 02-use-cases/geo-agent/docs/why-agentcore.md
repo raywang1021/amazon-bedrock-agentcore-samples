@@ -1,7 +1,5 @@
 # Why AgentCore?
 
-> [繁體中文版](why-agentcore.zh-TW.md)
-
 ## What is AgentCore
 
 AgentCore solves the core problem of bridging the infrastructure gap when moving an AI agent from prototype to production.
