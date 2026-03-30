@@ -1,7 +1,5 @@
 # Architecture
 
-> [繁體中文版](architecture.zh-TW.md)
-
 ## System Overview
 
 The system uses a CloudFront OAC + Lambda Function URL architecture.
