@@ -81,7 +81,6 @@ python scripts/query_scores.py --url /path    # Query specific URL
 
 ## Documentation
 
-- [Why AgentCore](docs/why-agentcore.md) — AgentCore vs direct LLM calls, Tool Selection vs MCP, three-layer trigger architecture
 - [Deployment Guide](docs/deployment.md) — AgentCore, SAM, CloudFront deployment steps
 - [Architecture](docs/architecture.md) — Edge Serving architecture, DDB Schema, Response Headers, HTML validation, multi-tenant
 - [Score Tracking](docs/score-tracking.md) — Pre/post-rewrite GEO score recording and optimization analysis
