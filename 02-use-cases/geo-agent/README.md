@@ -2,7 +2,9 @@
 
 Generative Engine Optimization (GEO) agent deployed via Bedrock AgentCore, with CloudFront OAC + Lambda Function URL for edge serving. AI search engine crawlers receive GEO-optimized content automatically.
 
-> [繁體中文版 README](README.zh-TW.md)
+## Architecture
+![Image](https://github.com/user-attachments/assets/b8f81db6-2022-414c-b096-2558e0624427)
+A GEO Agent is an edge-integrated AI orchestration layer that dynamically generates and serves geo-optimized content for both human users and AI bots. It detects bot traffic at the CDN layer and routes those requests to a content generation pipeline, where an agent (via AgentCore) leverages LLMs with guardrails to create structured, context-aware responses. The system uses asynchronous Lambda workflows and caching (e.g., DynamoDB) to store and reuse generated content, improving latency and cost efficiency. For normal users, traffic bypasses this path and retrieves content directly from the origin, ensuring no impact on standard web performance. Overall, GEO Agent enables scalable, real-time AI content serving at the edge while maintaining control, observability, and optimization.
 
 ## Features
 
