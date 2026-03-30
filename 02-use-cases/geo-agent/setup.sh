@@ -2,12 +2,13 @@
 set -e
 
 # ============================================================
-# GEO Agent — Interactive Setup
+# GEO Agent — One-Step Setup & Deploy
+# Usage: source ./setup.sh
 # ============================================================
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║          GEO Agent — Project Setup               ║"
+echo "║       GEO Agent — Setup & Deploy                 ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
@@ -22,36 +23,33 @@ MISSING=""
 if ! command -v python3 &>/dev/null; then
     MISSING="${MISSING}  - python3 (>= 3.10)\n"
     MISSING="${MISSING}      macOS:  brew install python@3.10\n"
-    MISSING="${MISSING}      Linux:  sudo apt install python3.10  (or yum/dnf)\n\n"
+    MISSING="${MISSING}      Linux:  sudo dnf install python3.11  (AL2023)\n\n"
 fi
 
 if ! command -v node &>/dev/null; then
     MISSING="${MISSING}  - node (>= 20) — required by AgentCore toolkit\n"
     MISSING="${MISSING}      macOS:  brew install node@20\n"
-    MISSING="${MISSING}      Linux:  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs\n"
-    MISSING="${MISSING}      Any:    https://nodejs.org/en/download\n\n"
+    MISSING="${MISSING}      Linux:  sudo dnf install nodejs20  (AL2023)\n"
+    MISSING="${MISSING}      Any:    nvm install 20\n\n"
 fi
 
 if ! command -v aws &>/dev/null; then
     MISSING="${MISSING}  - aws CLI (v2)\n"
     MISSING="${MISSING}      macOS:  brew install awscli\n"
-    MISSING="${MISSING}      Linux:  curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o awscliv2.zip && unzip awscliv2.zip && sudo ./aws/install\n"
-    MISSING="${MISSING}      Docs:   https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html\n\n"
+    MISSING="${MISSING}      Linux:  curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o awscliv2.zip && unzip awscliv2.zip && sudo ./aws/install\n\n"
 fi
 
 if ! command -v sam &>/dev/null; then
     MISSING="${MISSING}  - sam CLI — required for Lambda/DDB deployment\n"
     MISSING="${MISSING}      macOS:  brew install aws-sam-cli\n"
-    MISSING="${MISSING}      Linux:  pipx install aws-sam-cli  (recommended, isolated env)\n"
-    MISSING="${MISSING}              pip install --user aws-sam-cli  (alternative)\n"
-    MISSING="${MISSING}      Docs:   https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html\n\n"
+    MISSING="${MISSING}      Linux:  pipx install aws-sam-cli\n\n"
 fi
 
 if [ -n "$MISSING" ]; then
     echo "Missing required tools:"
     echo ""
     printf "$MISSING"
-    echo "Install them and re-run ./setup.sh"
+    echo "Install them and re-run: source ./setup.sh"
     exit 1
 fi
 
@@ -65,13 +63,15 @@ echo "  aws      $(aws --version 2>/dev/null | awk '{print $1}' | cut -d/ -f2)"
 echo "  sam      $(sam --version 2>/dev/null | awk '{print $NF}')"
 echo ""
 
-if [ "$(echo "$PYTHON_VER < 3.10" | bc 2>/dev/null)" = "1" ]; then
-    echo "  ⚠ Python >= 3.10 required (found $PYTHON_VER)"
+PYTHON_MAJOR=$(echo "$PYTHON_VER" | cut -d. -f1)
+PYTHON_MINOR=$(echo "$PYTHON_VER" | cut -d. -f2)
+if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; }; then
+    echo "  ✗ Python >= 3.10 required (found $PYTHON_VER)"
     exit 1
 fi
 
 if [ -n "$NODE_VER" ] && [ "$NODE_VER" -lt 20 ] 2>/dev/null; then
-    echo "  ⚠ Node >= 20 required (found v$NODE_VER)"
+    echo "  ✗ Node >= 20 required (found v$NODE_VER)"
     exit 1
 fi
 
@@ -79,7 +79,7 @@ echo "  ✓ All prerequisites met"
 echo ""
 
 # ----------------------------------------------------------
-# Step 1: Collect configuration
+# Step 1: Collect configuration (one time, used for everything)
 # ----------------------------------------------------------
 echo "--- Configuration ---"
 echo ""
@@ -87,12 +87,12 @@ echo ""
 # AWS Region
 read -rp "AWS Region [us-east-1]: " AWS_REGION
 AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_DEFAULT_REGION="$AWS_REGION"
 
 # Origin host (required)
 while true; do
-    read -rp "Target origin domain (e.g. news.tvbs.com.tw): " ORIGIN_HOST
+    read -rp "Target origin domain (e.g. www.setn.com): " ORIGIN_HOST
     if [ -n "$ORIGIN_HOST" ]; then
-        # Strip protocol prefix if user pasted a full URL
         ORIGIN_HOST=$(echo "$ORIGIN_HOST" | sed 's|^https\?://||' | sed 's|/.*||')
         break
     fi
@@ -117,7 +117,6 @@ echo ""
 echo "CloudFront distribution setup:"
 echo "  - Leave blank to CREATE a new distribution automatically"
 echo "  - Enter a distribution domain or ID to use an existing one"
-echo "    (e.g. d1234abcdef.cloudfront.net or E2ZP7RSVOE6A8D)"
 echo ""
 read -rp "CloudFront distribution [create new]: " CF_INPUT
 
@@ -128,15 +127,10 @@ CREATE_DISTRIBUTION="false"
 CFF_BEHAVIOR_PATH="*"
 
 if [ -z "$CF_INPUT" ]; then
-    # --- Create new distribution via SAM ---
     CREATE_DISTRIBUTION="true"
     echo "  → Will create a new CloudFront distribution for ${ORIGIN_HOST}"
 else
-    # --- Use existing distribution ---
-    # Normalize input: strip protocol, extract ID or domain
     CF_INPUT=$(echo "$CF_INPUT" | sed 's|^https\?://||' | sed 's|/.*||')
-
-    # If it looks like a domain (contains '.'), look up the distribution ID
     if echo "$CF_INPUT" | grep -q '\.'; then
         echo "  Looking up distribution for domain: ${CF_INPUT}..."
         CF_DIST_ID=$(aws cloudfront list-distributions \
@@ -144,39 +138,29 @@ else
             --output text 2>/dev/null || true)
         if [ -z "$CF_DIST_ID" ] || [ "$CF_DIST_ID" = "None" ]; then
             echo "  ✗ Distribution not found for domain: ${CF_INPUT}"
-            echo "    Verify the domain is correct and belongs to this AWS account."
             exit 1
         fi
         echo "  ✓ Found distribution: ${CF_DIST_ID}"
     else
-        # Assume it's a distribution ID directly
         CF_DIST_ID="$CF_INPUT"
-        # Verify it exists
         echo "  Verifying distribution ${CF_DIST_ID}..."
         if ! aws cloudfront get-distribution --id "$CF_DIST_ID" --query 'Distribution.Id' --output text &>/dev/null; then
-            echo "  ✗ Distribution ${CF_DIST_ID} not found in this account."
+            echo "  ✗ Distribution ${CF_DIST_ID} not found."
             exit 1
         fi
         echo "  ✓ Distribution found"
     fi
-
     CF_DIST_ARN="arn:aws:cloudfront::${AWS_ACCOUNT}:distribution/${CF_DIST_ID}"
     SETUP_CF_ORIGIN="true"
 
-    # --- List behaviors and let user choose which one to attach CFF ---
     echo ""
     echo "  Available cache behaviors:"
     echo ""
-
-    # Default behavior
     DEFAULT_ORIGIN=$(aws cloudfront get-distribution-config --id "$CF_DIST_ID" \
         --query 'DistributionConfig.DefaultCacheBehavior.TargetOriginId' --output text 2>/dev/null)
     echo "    [0] Default (*) → origin: ${DEFAULT_ORIGIN}"
-
-    # Additional behaviors
     BEHAVIOR_COUNT=$(aws cloudfront get-distribution-config --id "$CF_DIST_ID" \
         --query 'DistributionConfig.CacheBehaviors.Quantity' --output text 2>/dev/null)
-
     if [ "$BEHAVIOR_COUNT" != "0" ] && [ -n "$BEHAVIOR_COUNT" ]; then
         BEHAVIOR_PATHS=$(aws cloudfront get-distribution-config --id "$CF_DIST_ID" \
             --query 'DistributionConfig.CacheBehaviors.Items[*].[PathPattern, TargetOriginId]' \
@@ -187,15 +171,12 @@ else
             IDX=$((IDX + 1))
         done <<< "$BEHAVIOR_PATHS"
     fi
-
     echo ""
     read -rp "  Attach CFF to which behavior? [0 = Default(*)]: " BEHAVIOR_CHOICE
     BEHAVIOR_CHOICE="${BEHAVIOR_CHOICE:-0}"
-
     if [ "$BEHAVIOR_CHOICE" = "0" ]; then
         CFF_BEHAVIOR_PATH="*"
     else
-        # Extract the chosen path pattern
         CFF_BEHAVIOR_PATH=$(aws cloudfront get-distribution-config --id "$CF_DIST_ID" \
             --query "DistributionConfig.CacheBehaviors.Items[$((BEHAVIOR_CHOICE - 1))].PathPattern" \
             --output text 2>/dev/null)
@@ -216,6 +197,7 @@ ORIGIN_SECRET="${ORIGIN_SECRET:-$DEFAULT_SECRET}"
 read -rp "DynamoDB table name [geo-content]: " TABLE_NAME
 TABLE_NAME="${TABLE_NAME:-geo-content}"
 
+# --- Summary & Confirm ---
 echo ""
 echo "--- Summary ---"
 echo "  Region:         $AWS_REGION"
@@ -230,6 +212,11 @@ fi
 echo "  Table:          $TABLE_NAME"
 echo "  Verify Secret:  $ORIGIN_SECRET"
 echo ""
+echo "This will:"
+echo "  1. Install Python dependencies (venv)"
+echo "  2. Deploy GEO Agent to AgentCore"
+echo "  3. Deploy Lambda + DynamoDB + CloudFront (SAM)"
+echo ""
 read -rp "Proceed? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"
 if [[ ! "$CONFIRM" =~ ^[Yy] ]]; then
@@ -237,13 +224,85 @@ if [[ ! "$CONFIRM" =~ ^[Yy] ]]; then
     exit 0
 fi
 
-# ----------------------------------------------------------
-# Step 2: Generate samconfig.toml
-# ----------------------------------------------------------
+# ==========================================================
+# Step 2: Python venv + dependencies
+# ==========================================================
 echo ""
-echo "==> Generating samconfig.toml..."
+echo "==> [1/4] Installing Python dependencies..."
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Workaround for SSL certificate issues (common on corporate networks)
+export PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org"
+export UV_NATIVE_TLS=true
+
+pip install -e . 2>&1 | tail -3
+
+# Fix chardet/charset_normalizer conflict
+if pip show chardet > /dev/null 2>&1; then
+    pip uninstall chardet -y > /dev/null 2>&1
+fi
+
+echo "  ✓ Dependencies installed, venv activated"
+
+# ==========================================================
+# Step 3: AgentCore configure + deploy
+# ==========================================================
+echo ""
+echo "==> [2/4] Deploying GEO Agent to AgentCore..."
+
+# Auto-configure agentcore if not already configured
+if [ ! -f .bedrock_agentcore.yaml ]; then
+    echo "  Running agentcore configure (entrypoint: src/main.py)..."
+    echo ""
+    echo "  ┌─────────────────────────────────────────────┐"
+    echo "  │ When prompted:                              │"
+    echo "  │   Entrypoint: src/main.py                   │"
+    echo "  │   Region: ${AWS_REGION}                     │"
+    echo "  │   Accept defaults for the rest              │"
+    echo "  └─────────────────────────────────────────────┘"
+    echo ""
+    agentcore configure
+fi
+
+echo ""
+echo "  Deploying agent..."
+agentcore deploy
+
+# Extract Agent Runtime ARN from config
+AGENT_ARN=$(python3 -c "
+import yaml
+with open('.bedrock_agentcore.yaml') as f:
+    cfg = yaml.safe_load(f)
+agents = cfg.get('agents', {})
+for name, agent in agents.items():
+    arn = agent.get('bedrock_agentcore', {}).get('agent_arn', '')
+    if arn:
+        print(arn)
+        break
+" 2>/dev/null || true)
+
+if [ -z "$AGENT_ARN" ]; then
+    echo "  ⚠ Could not extract Agent Runtime ARN from .bedrock_agentcore.yaml"
+    echo "    You'll need to set AgentRuntimeArn manually in samconfig.toml"
+    read -rp "  Agent Runtime ARN (paste here, or Enter to skip): " AGENT_ARN
+fi
+
+if [ -n "$AGENT_ARN" ]; then
+    echo "  ✓ Agent ARN: ${AGENT_ARN}"
+fi
+
+# ==========================================================
+# Step 4: Generate samconfig.toml
+# ==========================================================
+echo ""
+echo "==> [3/4] Building SAM template..."
 
 PARAM_OVERRIDES="TableName=\\\"${TABLE_NAME}\\\" DefaultOriginHost=\\\"${ORIGIN_HOST}\\\" OriginVerifySecret=\\\"${ORIGIN_SECRET}\\\""
+
+if [ -n "$AGENT_ARN" ]; then
+    PARAM_OVERRIDES="${PARAM_OVERRIDES} AgentRuntimeArn=\\\"${AGENT_ARN}\\\""
+fi
 
 if [ "$CREATE_DISTRIBUTION" = "true" ]; then
     PARAM_OVERRIDES="${PARAM_OVERRIDES} CreateDistribution=\\\"true\\\""
@@ -268,60 +327,50 @@ image_repositories = []
 region = "${AWS_REGION}"
 EOF
 
-echo "  ✓ samconfig.toml created"
+echo "  ✓ samconfig.toml generated"
 
-# ----------------------------------------------------------
-# Step 3: Python virtual environment
-# ----------------------------------------------------------
+# ==========================================================
+# Step 5: SAM build + deploy
+# ==========================================================
 echo ""
-echo "==> Creating virtual environment..."
-python3 -m venv .venv
+sam build -t infra/template.yaml
 
-echo "==> Installing dependencies..."
-.venv/bin/pip install -e . 2>&1 | tail -1
+echo ""
+echo "==> [4/4] Deploying infrastructure (Lambda + DynamoDB + CloudFront)..."
+echo ""
+sam deploy
 
-# Fix chardet/charset_normalizer conflict
-if .venv/bin/pip show chardet > /dev/null 2>&1; then
-    echo "==> Fixing chardet/charset_normalizer conflict..."
-    .venv/bin/pip uninstall chardet -y > /dev/null 2>&1
-fi
-
-# ----------------------------------------------------------
-# Done
-# ----------------------------------------------------------
+# ==========================================================
+# Done!
+# ==========================================================
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  Setup complete!                                 ║"
+echo "║  ✓ All done!                                     ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-# Auto-activate venv if script was sourced
-if [ -n "$BASH_SOURCE" ] && [ "$0" != "$BASH_SOURCE" ]; then
-    echo "==> Activating virtual environment..."
-    source .venv/bin/activate
-    echo "  ✓ venv activated"
+# Show outputs
+STACK_STATUS=$(aws cloudformation describe-stacks --stack-name geo-backend \
+    --query 'Stacks[0].StackStatus' --output text --region "$AWS_REGION" 2>/dev/null || true)
+
+if [ "$STACK_STATUS" = "CREATE_COMPLETE" ] || [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+    echo "Stack outputs:"
+    aws cloudformation describe-stacks --stack-name geo-backend \
+        --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+        --output table --region "$AWS_REGION" 2>/dev/null || true
     echo ""
+
+    if [ "$CREATE_DISTRIBUTION" = "true" ]; then
+        CF_DOMAIN=$(aws cloudformation describe-stacks --stack-name geo-backend \
+            --query "Stacks[0].Outputs[?OutputKey=='DistributionDomain'].OutputValue" \
+            --output text --region "$AWS_REGION" 2>/dev/null || true)
+        if [ -n "$CF_DOMAIN" ] && [ "$CF_DOMAIN" != "None" ]; then
+            echo "Test with:"
+            echo "  curl -H 'User-Agent: GPTBot' \"https://${CF_DOMAIN}/\""
+            echo ""
+        fi
+    fi
 fi
 
-echo "Next steps:"
-echo ""
-if [ -z "$VIRTUAL_ENV" ]; then
-    echo "  1. source .venv/bin/activate"
-    echo "  2. agentcore configure        # AWS credentials + AgentCore setup"
-    echo "  3. agentcore deploy           # Deploy agent → get Runtime ARN"
-else
-    echo "  1. agentcore configure        # AWS credentials + AgentCore setup"
-    echo "  2. agentcore deploy           # Deploy agent → get Runtime ARN"
-fi
-echo "  Then:"
-echo "     sam build -t infra/template.yaml"
-echo "     sam deploy -t infra/template.yaml"
-echo ""
-if [ "$CREATE_DISTRIBUTION" = "true" ]; then
-    echo "  A new CloudFront distribution will be created during sam deploy."
-    echo "  After deployment, check the stack outputs for the distribution domain."
-    echo ""
-fi
-echo "  TIP: Use 'source ./setup.sh' to auto-activate the venv after setup."
-echo "  See docs/deployment.md for full deployment guide."
+echo "venv is active. Run 'deactivate' to exit."
 echo ""

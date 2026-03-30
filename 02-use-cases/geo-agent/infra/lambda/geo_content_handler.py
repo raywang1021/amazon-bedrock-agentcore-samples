@@ -334,6 +334,16 @@ def handler(event, context):
     # Support both ALB and Function URL event formats
     # ALB: event["path"], Function URL: event["rawPath"]
     path = event.get("rawPath") or event.get("path") or "/"
+
+    # Skip static resources — no point in GEO-optimizing CSS/JS/images/fonts
+    SKIP_EXTENSIONS = (
+        '.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico',
+        '.woff', '.woff2', '.ttf', '.eot', '.map', '.webp', '.avif',
+    )
+    path_lower = path.lower().split('?')[0]
+    if path_lower.endswith(SKIP_EXTENSIONS):
+        return _error(404, "Not a content page")
+
     mode = _get_mode(event)
     qs = _filtered_qs(event)
     original_url = _get_original_url(event, path)

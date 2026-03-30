@@ -31,51 +31,21 @@ Parameters:
     Type: String
     Default: PriceClass_All
     AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+  CachePolicyId:
+    Type: String
+    Default: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    Description: >-
+      Cache policy ID. Default is CachingOptimized.
+      Use 4135ea2d-6df8-44a3-9df3-4b5a84be39ad for CachingDisabled.
+  OriginRequestPolicyId:
+    Type: String
+    Default: "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+    Description: >-
+      Origin request policy ID. Default is AllViewerExceptHostHeader.
+      IMPORTANT: Do NOT use AllViewer (216adef6) — it forwards the Host
+      header which breaks OAC SigV4 signing for Lambda Function URLs.
 
 Resources:
-  GeoCachePolicy:
-    Type: AWS::CloudFront::CachePolicy
-    Properties:
-      CachePolicyConfig:
-        Name: !Sub "${AWS::StackName}-geo-cache-policy"
-        DefaultTTL: 0
-        MaxTTL: 86400
-        MinTTL: 0
-        ParametersInCacheKeyAndForwardedToOrigin:
-          EnableAcceptEncodingGzip: true
-          EnableAcceptEncodingBrotli: true
-          HeadersConfig:
-            HeaderBehavior: whitelist
-            Headers:
-              - x-geo-bot
-              - x-original-host
-          CookiesConfig:
-            CookieBehavior: none
-          QueryStringsConfig:
-            QueryStringBehavior: whitelist
-            QueryStrings:
-              - action
-              - mode
-              - purge
-              - ua
-
-  GeoOriginRequestPolicy:
-    Type: AWS::CloudFront::OriginRequestPolicy
-    Properties:
-      OriginRequestPolicyConfig:
-        Name: !Sub "${AWS::StackName}-geo-origin-request"
-        HeadersConfig:
-          HeaderBehavior: whitelist
-          Headers:
-            - x-geo-bot
-            - x-geo-bot-ua
-            - x-original-host
-            - x-origin-verify
-        CookiesConfig:
-          CookieBehavior: none
-        QueryStringsConfig:
-          QueryStringBehavior: all
-
   GeoCff:
     Type: AWS::CloudFront::Function
     Properties:
@@ -144,7 +114,7 @@ Resources:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols:
                 - TLSv1.2
-              OriginReadTimeout: 85
+              OriginReadTimeout: 60
               OriginKeepaliveTimeout: 5
             OriginAccessControlId: !Ref GeoOacId
             OriginCustomHeaders:
@@ -153,10 +123,8 @@ Resources:
         DefaultCacheBehavior:
           TargetOriginId: default-origin
           ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods: [GET, HEAD, OPTIONS]
-          CachedMethods: [GET, HEAD]
-          CachePolicyId: !Ref GeoCachePolicy
-          OriginRequestPolicyId: !Ref GeoOriginRequestPolicy
+          CachePolicyId: !Ref CachePolicyId
+          OriginRequestPolicyId: !Ref OriginRequestPolicyId
           Compress: true
           FunctionAssociations:
             - EventType: viewer-request

@@ -192,7 +192,7 @@ Resources:
           if (isAiBot) {
             request.headers['x-geo-bot'] = { value: 'true' };
             request.headers['x-geo-bot-ua'] = { value: ua };
-            request.headers['x-original-host'] = { value: request.headers['host'] ? request.headers['host'].value : '' };
+            request.headers['x-original-host'] = { value: '${DefaultOriginHost}' };
             cf.selectRequestOriginById('geo-lambda-origin');
           }
           return request;
