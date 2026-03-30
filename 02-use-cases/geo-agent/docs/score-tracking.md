@@ -1,7 +1,5 @@
 # GEO Score Tracking
 
-> [繁體中文版](score-tracking.zh-TW.md)
-
 ## Overview
 
 This feature automatically evaluates and stores GEO scores before and after content rewriting to DynamoDB, enabling optimization effectiveness tracking.
