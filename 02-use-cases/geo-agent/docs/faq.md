@@ -1,7 +1,5 @@
 # FAQ
 
-> [繁體中文版](faq.zh-TW.md)
-
 ## Why use an Agent instead of a Python script calling Claude directly?
 
 If the requirement is a fixed single task (e.g., batch-evaluating GEO scores for a list of URLs), calling the Bedrock API directly from a script is faster and simpler — just one Claude call.
