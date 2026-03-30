@@ -1,7 +1,5 @@
 # GEO Agent — Roadmap
 
-> [繁體中文版](roadmap.zh-TW.md)
-
 ## Completed
 
 | Phase | Description |
