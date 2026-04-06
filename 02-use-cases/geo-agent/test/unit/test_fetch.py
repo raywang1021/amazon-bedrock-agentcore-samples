@@ -1,4 +1,4 @@
-"""Unit tests for fetch_page_text (mocked HTTP)."""
+"""Unit tests for fetch_page_text with mocked HTTP responses."""
 
 import sys
 import os

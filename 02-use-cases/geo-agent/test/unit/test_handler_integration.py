@@ -1,4 +1,8 @@
-"""Integration tests for geo_content_handler with mocked AWS services."""
+"""Integration tests for geo_content_handler with mocked AWS services.
+
+Tests cache hit, cache miss (passthrough/async), purge, forbidden access,
+and stale processing record recovery.
+"""
 
 import sys
 import os
@@ -19,7 +23,7 @@ os.environ["CF_DISTRIBUTION_ID"] = ""
 
 
 def _make_event(path="/test", mode=None, purge=False, ua_genaibot=False):
-    """Build a Lambda event dict."""
+    """Build a mock Lambda Function URL event dictionary."""
     params = {}
     if mode:
         params["mode"] = mode

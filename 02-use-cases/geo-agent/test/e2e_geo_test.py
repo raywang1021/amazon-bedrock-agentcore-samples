@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""E2E test: parse list page for latest article, run full GEO test suite, log results.
+"""E2E test: parse list page for latest article, run full GEO test suite.
 
 Test steps per site:
-  1. Parse list page → find latest article URL
+  1. Parse list page to find the latest article URL
   2. Purge existing cache
-  3. Sync mode: trigger AgentCore generation, wait for GEO content
+  3. Sync mode: trigger Amazon Bedrock AgentCore generation, wait for GEO content
   4. Cache hit: re-request, verify served from cache
-  5. Score check: query DDB for score tracking data
+  5. Score check: query Amazon DynamoDB for score tracking data
   6. Passthrough: purge again, verify passthrough returns original + triggers async
 
 Results are logged to test/e2e_results/ with timestamps for historical review.
 
 Usage:
-  python test/e2e_geo_test.py                    # test both sites (full suite)
+  python test/e2e_geo_test.py                    # test both sites
   python test/e2e_geo_test.py --site setn        # SETN only
   python test/e2e_geo_test.py --site tvbs        # TVBS only
   python test/e2e_geo_test.py --quick            # skip sync (passthrough only)

@@ -1,6 +1,13 @@
+/**
+ * Amazon CloudFront Function: routes AI bot requests to the GEO Lambda origin.
+ *
+ * Detects AI crawler User-Agents (GPTBot, ClaudeBot, etc.) and switches
+ * the request origin to the GEO Lambda Function URL via OAC (SigV4).
+ * Also supports manual testing via ?ua=genaibot querystring.
+ */
+
 import cf from 'cloudfront';
 
-// AI crawler bot patterns (case-insensitive matching)
 var AI_BOT_PATTERNS = [
   // OpenAI
   'gptbot',
@@ -34,8 +41,6 @@ var AI_BOT_PATTERNS = [
   'youbot',
 ];
 
-// --- Configuration ---
-// OAC mode: Lambda Function URL origin (IAM auth + SigV4)
 var GEO_ORIGIN_ID = 'geo-lambda-origin';
 
 function handler(event) {
@@ -59,10 +64,8 @@ function handler(event) {
   if (isAiBot) {
     request.headers['x-geo-bot'] = { value: 'true' };
     request.headers['x-geo-bot-ua'] = { value: userAgent };
-    // Preserve original host before origin switch (CF overwrites Host header)
     request.headers['x-original-host'] = { value: request.headers['host'] ? request.headers['host'].value : '' };
 
-    // Switch origin to Lambda Function URL (OAC SigV4)
     cf.selectRequestOriginById(GEO_ORIGIN_ID);
   }
 

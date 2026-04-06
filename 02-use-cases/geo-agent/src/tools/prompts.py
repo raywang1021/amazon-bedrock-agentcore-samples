@@ -1,4 +1,8 @@
-"""Shared prompts for GEO agent tools."""
+"""Shared prompts for GEO agent tools.
+
+Contains the GEO_REWRITE_PROMPT used by both the rewrite_content_for_geo
+tool and the store_geo_content tool's rewriting pipeline.
+"""
 
 GEO_REWRITE_PROMPT = """You are a Generative Engine Optimization Expert. First, identify the content type from the input, then apply the corresponding rewrite strategy.
 

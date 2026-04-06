@@ -1,4 +1,4 @@
-"""Test script to verify GEO score tracking in DDB."""
+"""Test script to verify GEO score tracking in Amazon DynamoDB."""
 
 import sys
 import os

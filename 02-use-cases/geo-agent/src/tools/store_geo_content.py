@@ -1,10 +1,11 @@
-"""Tool to generate GEO-optimized content and store it via Storage Lambda.
+"""Tool to generate GEO-optimized content and store it via AWS Lambda.
 
-This bridges the GEO agent with the edge-serving infrastructure.
-It rewrites a page's content for GEO, then invokes the geo-content-storage
-Lambda to persist the result in DDB for CloudFront edge serving.
+Bridges the GEO agent with the edge-serving infrastructure by rewriting
+a page's content for GEO, then invoking the geo-content-storage Lambda
+to persist the result in Amazon DynamoDB for Amazon CloudFront edge serving.
 
-The Agent no longer needs DynamoDB permissions — only lambda:InvokeFunction.
+The agent only needs lambda:InvokeFunction permission — no direct
+Amazon DynamoDB access required.
 """
 
 import json
@@ -25,7 +26,12 @@ AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 
 def _evaluate_content_score(content: str, label: str) -> dict:
-    """Evaluate content and return score dict with overall_score and dimensions."""
+    """Evaluate content GEO readiness and return a score dictionary.
+
+    Returns a dict with overall_score (0-100) and per-dimension scores
+    for cited_sources, statistical_addition, and authoritative.
+    Uses temperature=0.1 for consistent scoring.
+    """
     from model.load import load_model
     from strands import Agent
     import json as _json
@@ -67,11 +73,12 @@ def store_geo_content(url: str) -> str:
 
     Fetches the page content, rewrites it using the GEO rewriter,
     and invokes the geo-content-storage Lambda to persist the optimized
-    version in DynamoDB for edge serving to AI crawlers via CloudFront.
+    version in Amazon DynamoDB for edge serving to AI crawlers via
+    Amazon CloudFront.
 
     Evaluates GEO scores (original vs rewritten) in parallel using threads,
-    then updates DDB with scores asynchronously — so content is available
-    immediately without waiting for scoring to complete.
+    then updates Amazon DynamoDB with scores asynchronously so content is
+    available immediately without waiting for scoring to complete.
 
     Args:
         url: The full URL of the page to process and store.
@@ -89,7 +96,6 @@ def store_geo_content(url: str) -> str:
     if len(clean_text) > max_chars:
         clean_text = clean_text[:max_chars] + "\n\n[Content truncated]"
 
-    # Rewrite for GEO (output HTML for edge serving) — this is the critical path
     rewrite_prompt = GEO_REWRITE_PROMPT + """
 
 Output clean HTML directly without markdown code fences.
@@ -103,22 +109,18 @@ Do NOT wrap your output in ```html or ``` markers."""
     gen_duration_ms = int((_time.time() - gen_start) * 1000)
     geo_content = str(result)
 
-    # Strip markdown code block wrappers
     import re
     geo_content = re.sub(r'^```(?:html)?\s*\n', '', geo_content)
     geo_content = re.sub(r'\n```\s*$', '', geo_content)
 
-    # Strip any conversational prefix before the first HTML tag.
-    # The rewriter sometimes outputs "Here's the optimized content:" before HTML.
+    # Strip conversational prefix before the first HTML tag
     html_start = re.search(r'<(?:!doctype|html|head|body|article|section|div|h[1-6]|main|header|nav|p\b)', geo_content, re.IGNORECASE)
     if html_start and html_start.start() > 0:
         geo_content = geo_content[html_start.start():]
 
-    # Final guard: if geo_content doesn't look like HTML at all, bail out
     if not geo_content.strip().startswith('<'):
         return f"Rewriter did not produce HTML for {url}, skipping storage"
 
-    # Store content immediately (don't wait for scoring)
     parsed = urlparse(url)
     url_path = parsed.path or "/"
     if parsed.query:
@@ -149,7 +151,7 @@ Do NOT wrap your output in ```html or ``` markers."""
         error_detail = resp_payload.get("body", str(resp_payload))
         return f"Storage Lambda returned error: {error_detail}"
 
-    # Run both score evaluations in parallel (non-blocking for content serving)
+    # Run score evaluations in parallel
     score_msg = ""
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -158,7 +160,6 @@ Do NOT wrap your output in ```html or ``` markers."""
             original_score = fut_original.result(timeout=60)
             geo_score = fut_geo.result(timeout=60)
 
-        # Update DDB with scores only (don't overwrite the full record)
         score_payload = {
             "action": "update_scores",
             "url_path": url_path,
@@ -168,7 +169,7 @@ Do NOT wrap your output in ```html or ``` markers."""
         }
         lambda_client.invoke(
             FunctionName=GEO_STORAGE_FUNCTION_NAME,
-            InvocationType="Event",  # async — fire and forget
+            InvocationType="Event",
             Payload=json.dumps(score_payload),
         )
 

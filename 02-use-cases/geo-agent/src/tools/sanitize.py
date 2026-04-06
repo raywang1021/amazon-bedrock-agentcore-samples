@@ -1,4 +1,9 @@
-"""Sanitize fetched web content to mitigate indirect prompt injection."""
+"""Sanitize fetched web content to mitigate indirect prompt injection.
+
+Strips HTML comments, removes invisible unicode characters, and redacts
+known prompt injection patterns before content is passed to the LLM.
+Works alongside Amazon Bedrock Guardrail for defense-in-depth.
+"""
 
 import re
 import unicodedata
@@ -27,32 +32,27 @@ _INJECTION_RE = re.compile(
     "|".join(_INJECTION_PATTERNS), re.IGNORECASE
 )
 
-# HTML comments: <!-- ... -->
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
-# Zero-width and invisible unicode categories
 _INVISIBLE_CATEGORIES = {"Cf", "Cc", "Co"}
-# Keep common whitespace
 _KEEP_CHARS = {"\n", "\r", "\t", " "}
 
 
 def sanitize_web_content(text: str) -> str:
     """Clean fetched web text to reduce prompt injection risk.
 
-    1. Strip HTML comments
-    2. Remove invisible unicode characters
-    3. Redact known prompt injection patterns
+    Applies three layers of protection:
+    1. Strips HTML comments (attackers often hide instructions in them)
+    2. Removes invisible unicode characters (zero-width chars bypass regex)
+    3. Redacts known prompt injection patterns
     """
-    # 1. Remove HTML comments
     text = _HTML_COMMENT_RE.sub("", text)
 
-    # 2. Remove invisible unicode characters (keep normal whitespace)
     text = "".join(
         ch for ch in text
         if ch in _KEEP_CHARS or unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
     )
 
-    # 3. Redact injection patterns
     text = _INJECTION_RE.sub("[REDACTED]", text)
 
     return text.strip()

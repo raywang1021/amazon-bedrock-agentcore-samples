@@ -1,11 +1,11 @@
-"""Test GEO content serving via Lambda Function URL and CloudFront.
+"""Test GEO content serving via AWS Lambda Function URL and Amazon CloudFront.
 
 Tests:
 1. Lambda Function URL direct (passthrough mode)
 2. Lambda Function URL direct (async mode)
 3. Lambda Function URL direct (sync mode)
-4. CloudFront as normal user (should get original content)
-5. CloudFront with ?ua=genaibot (should route to GEO origin)
+4. Amazon CloudFront as normal user (should get original content)
+5. Amazon CloudFront with ?ua=genaibot (should route to GEO origin)
 """
 
 import requests

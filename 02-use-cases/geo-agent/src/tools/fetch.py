@@ -1,4 +1,8 @@
-"""Shared utility for fetching and extracting text from web pages."""
+"""Shared utility for fetching and extracting text content from web pages.
+
+Uses trafilatura for clean text extraction when available, with a
+fallback HTML tag-stripping parser for environments without it.
+"""
 
 import requests
 
@@ -37,6 +41,8 @@ def fetch_page_text(url: str, include_links: bool = False, user_agent: str = DEF
     from html.parser import HTMLParser
 
     class _TextExtractor(HTMLParser):
+        """Simple HTML parser that extracts visible text, skipping script/style blocks."""
+
         def __init__(self):
             super().__init__()
             self.parts = []

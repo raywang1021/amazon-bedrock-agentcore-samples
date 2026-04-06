@@ -1,22 +1,21 @@
-"""Custom Resource Lambda: adds/removes GEO Lambda origin to an existing CloudFront distribution.
+"""CloudFormation Custom Resource: configures an existing Amazon CloudFront distribution for GEO.
 
 On Create/Update:
-  - Adds a new origin (geo-lambda-origin) pointing to the Lambda Function URL
+  - Adds a geo-lambda-origin pointing to the AWS Lambda Function URL
   - Attaches OAC for SigV4 signing
-  - Associates CFF (geo-bot-router-oac) with the specified cache behavior
-  - Adds x-origin-verify custom header to the origin
+  - Associates the CloudFront Function with the specified cache behavior
+  - Adds x-origin-verify custom header for defense-in-depth
 
 On Delete:
-  - Removes the GEO origin from the distribution
-  - Removes CFF association from the behavior
+  - Removes the GEO origin and CloudFront Function association
 
 Properties (from CloudFormation):
-  DistributionId: CloudFront distribution ID
-  FunctionUrlDomain: Lambda Function URL domain (without https://)
+  DistributionId: Amazon CloudFront distribution ID
+  FunctionUrlDomain: AWS Lambda Function URL domain (without https://)
   OacId: Origin Access Control ID
   OriginVerifySecret: Shared secret for x-origin-verify header
   CffArn: ARN of the CloudFront Function to associate
-  BehaviorPath: Cache behavior path pattern to attach CFF ("*" = default behavior)
+  BehaviorPath: Cache behavior path pattern ("*" = default behavior)
 """
 
 import json
@@ -27,7 +26,7 @@ cf = boto3.client("cloudfront")
 
 
 def _send_cfn_response(event, context, status, data=None):
-    """Send response to CloudFormation (replaces cfnresponse for CodeUri-based Lambda)."""
+    """Send a response to CloudFormation for the Custom Resource lifecycle."""
     body = json.dumps({
         "Status": status,
         "Reason": f"See CloudWatch Log Stream: {context.log_stream_name}",
@@ -44,6 +43,7 @@ def _send_cfn_response(event, context, status, data=None):
 
 
 def handler(event, context):
+    """Handle CloudFormation Custom Resource Create/Update/Delete events."""
     try:
         props = event["ResourceProperties"]
         dist_id = props["DistributionId"]
@@ -75,19 +75,19 @@ ORIGIN_ID = "geo-lambda-origin"
 
 
 def _get_dist_config(dist_id):
+    """Fetch the current distribution config and ETag."""
     resp = cf.get_distribution_config(Id=dist_id)
     return resp["ETag"], resp["DistributionConfig"]
 
 
 def _add_origin(dist_id, func_url_domain, oac_id, verify_secret, cff_arn, behavior_path):
+    """Add the GEO Lambda origin with OAC to the distribution."""
     etag, config = _get_dist_config(dist_id)
 
-    # Remove existing geo origin if present (idempotent)
     config["Origins"]["Items"] = [
         o for o in config["Origins"]["Items"] if o["Id"] != ORIGIN_ID
     ]
 
-    # Add new origin
     new_origin = {
         "Id": ORIGIN_ID,
         "DomainName": func_url_domain,
@@ -116,7 +116,6 @@ def _add_origin(dist_id, func_url_domain, oac_id, verify_secret, cff_arn, behavi
     config["Origins"]["Items"].append(new_origin)
     config["Origins"]["Quantity"] = len(config["Origins"]["Items"])
 
-    # Associate CFF with behavior
     if cff_arn:
         _attach_cff(config, cff_arn, behavior_path)
 
@@ -125,6 +124,7 @@ def _add_origin(dist_id, func_url_domain, oac_id, verify_secret, cff_arn, behavi
 
 
 def _remove_origin(dist_id):
+    """Remove the GEO Lambda origin and CloudFront Function association from the distribution."""
     etag, config = _get_dist_config(dist_id)
 
     original_count = len(config["Origins"]["Items"])
@@ -137,7 +137,7 @@ def _remove_origin(dist_id):
         print(f"Origin {ORIGIN_ID} not found in distribution {dist_id}, skipping")
         return
 
-    # Remove CFF association from default behavior
+    # Remove CFF association
     _detach_cff(config)
 
     cf.update_distribution(Id=dist_id, IfMatch=etag, DistributionConfig=config)
@@ -145,7 +145,7 @@ def _remove_origin(dist_id):
 
 
 def _attach_cff(config, cff_arn, behavior_path):
-    """Attach CFF to the specified cache behavior."""
+    """Attach a CloudFront Function to the specified cache behavior."""
     if behavior_path == "*":
         behavior = config["DefaultCacheBehavior"]
     else:
@@ -158,8 +158,6 @@ def _attach_cff(config, cff_arn, behavior_path):
 
     fa = behavior.get("FunctionAssociations", {"Quantity": 0, "Items": []})
     items = fa.get("Items", [])
-
-    # Remove existing viewer-request CFF if any
     items = [i for i in items if i["EventType"] != "viewer-request"]
 
     items.append({"FunctionARN": cff_arn, "EventType": "viewer-request"})
@@ -167,7 +165,7 @@ def _attach_cff(config, cff_arn, behavior_path):
 
 
 def _detach_cff(config):
-    """Remove viewer-request CFF from default behavior."""
+    """Remove the viewer-request CloudFront Function from the default behavior."""
     behavior = config["DefaultCacheBehavior"]
     fa = behavior.get("FunctionAssociations", {"Quantity": 0, "Items": []})
     items = fa.get("Items", [])

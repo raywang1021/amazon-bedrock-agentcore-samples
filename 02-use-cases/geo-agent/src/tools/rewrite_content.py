@@ -1,3 +1,9 @@
+"""Tool to rewrite content for Generative Engine Optimization (GEO).
+
+Uses a dedicated Strands sub-agent with the shared GEO rewrite prompt
+to transform raw content into a GEO-optimized format.
+"""
+
 from strands import tool
 from tools.prompts import GEO_REWRITE_PROMPT
 

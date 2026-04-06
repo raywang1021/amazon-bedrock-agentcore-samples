@@ -1,4 +1,4 @@
-"""Unit tests for geo_storage Lambda handler (mocked DDB)."""
+"""Unit tests for geo_storage Lambda handler with mocked Amazon DynamoDB."""
 
 import sys
 import os
@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "infra", 
 
 class TestStorageLambda:
     def setup_method(self):
-        """Mock DDB before importing handler."""
+        """Mock Amazon DynamoDB before importing handler."""
         self.mock_table = MagicMock()
         self.mock_dynamodb = MagicMock()
         self.mock_dynamodb.Table.return_value = self.mock_table

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""驗證 GEO 分數追蹤功能是否正確部署。
+"""Verify that GEO score tracking is correctly deployed.
 
-此腳本會：
-1. 檢查 DynamoDB 表是否存在
-2. 檢查 Lambda 函數是否部署
-3. 測試寫入和讀取包含分數的項目
-4. 驗證所有必要欄位
+Checks:
+1. Amazon DynamoDB table exists and is accessible
+2. AWS Lambda functions are deployed
+3. Storage Lambda supports score fields
+4. Amazon DynamoDB items contain all required score fields
 """
 
 import sys
@@ -22,7 +22,7 @@ STORAGE_FUNCTION = "geo-content-storage"
 GENERATOR_FUNCTION = "geo-content-generator"
 
 def check_dynamodb_table():
-    """檢查 DynamoDB 表是否存在且可訪問。"""
+    """Check that the Amazon DynamoDB table exists and is accessible."""
     print("1. 檢查 DynamoDB 表...", flush=True)
     try:
         dynamodb = boto3.resource("dynamodb", region_name=REGION)
@@ -35,7 +35,7 @@ def check_dynamodb_table():
         return False
 
 def check_lambda_functions():
-    """檢查 Lambda 函數是否部署。"""
+    """Check that the required AWS Lambda functions are deployed."""
     print("\n2. 檢查 Lambda 函數...", flush=True)
     lambda_client = boto3.client("lambda", region_name=REGION)
     
@@ -57,7 +57,7 @@ def check_lambda_functions():
     return all_exist
 
 def test_storage_lambda():
-    """測試 Storage Lambda 是否支援分數欄位。"""
+    """Test that the Storage Lambda supports score fields in its payload."""
     print("\n3. 測試 Storage Lambda 分數支援...", flush=True)
     
     lambda_client = boto3.client("lambda", region_name=REGION)
@@ -110,7 +110,7 @@ def test_storage_lambda():
         return False
 
 def verify_ddb_item():
-    """驗證 DynamoDB 中的項目包含所有分數欄位。"""
+    """Verify that the Amazon DynamoDB item contains all required score fields."""
     print("\n4. 驗證 DynamoDB 項目...", flush=True)
     
     try:
@@ -168,7 +168,7 @@ def verify_ddb_item():
         return False
 
 def cleanup():
-    """清理測試資料。"""
+    """Clean up test data from Amazon DynamoDB."""
     print("\n5. 清理測試資料...", flush=True)
     
     try:
@@ -184,7 +184,7 @@ def cleanup():
         return False
 
 def main():
-    """主函數。"""
+    """Run all deployment verification checks."""
     print("=" * 60)
     print("GEO 分數追蹤功能部署驗證")
     print("=" * 60)

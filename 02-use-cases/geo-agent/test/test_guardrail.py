@@ -1,4 +1,4 @@
-"""Quick test: Bedrock Guardrail with GEO agent model."""
+"""Quick test: Amazon Bedrock Guardrail integration with the GEO agent model."""
 import os
 import sys
 

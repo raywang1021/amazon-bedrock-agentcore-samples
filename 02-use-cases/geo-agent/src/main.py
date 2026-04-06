@@ -1,3 +1,9 @@
+"""Amazon Bedrock AgentCore entry point for the GEO Agent.
+
+Defines the Strands Agent with four GEO tools (rewrite, score, llms.txt, store)
+and exposes it as an AgentCore application with streaming response support.
+"""
+
 import os
 from strands import Agent
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -50,6 +56,7 @@ WRONG EXAMPLE:
 
 @app.entrypoint
 async def invoke(payload, context):
+    """Handle an incoming AgentCore invocation by streaming the agent's response."""
     agent = Agent(
         model=load_model(),
         system_prompt=SYSTEM_PROMPT,

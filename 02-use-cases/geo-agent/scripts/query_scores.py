@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""查詢和分析 GEO 分數追蹤資料的工具腳本。
+"""Query and analyze GEO score tracking data from Amazon DynamoDB.
 
-使用範例:
-  python scripts/query_scores.py --stats          # 顯示統計資訊
-  python scripts/query_scores.py --top 10         # 顯示改善最大的前 10 項
-  python scripts/query_scores.py --url /path     # 查詢特定 URL 的分數
-  python scripts/query_scores.py --export scores.json  # 匯出所有分數資料
+Usage:
+  python scripts/query_scores.py --stats              # Show statistics
+  python scripts/query_scores.py --top 10             # Top 10 improvements
+  python scripts/query_scores.py --url /path          # Query specific URL
+  python scripts/query_scores.py --export scores.json # Export all score data
 """
 
 import argparse

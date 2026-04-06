@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-set -e
+# Use return instead of exit when sourced, so we don't kill the user's shell
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    _GEO_SOURCED=1
+    _geo_abort() { return 1; }
+else
+    _GEO_SOURCED=0
+    _geo_abort() { exit 1; }
+    set -e
+fi
 
 # ============================================================
 # GEO Agent — One-Step Setup & Deploy
@@ -50,14 +58,22 @@ if [ -n "$MISSING" ]; then
     echo ""
     printf "$MISSING"
     echo "Install them and re-run: source ./setup.sh"
-    exit 1
+    _geo_abort
 fi
 
-# Version checks
-PYTHON_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+# Prefer a Homebrew Python >= 3.10 over the system python3
+PYTHON3="python3"
+for candidate in python3.13 python3.12 python3.11 python3.10; do
+    if command -v "$candidate" &>/dev/null; then
+        PYTHON3="$candidate"
+        break
+    fi
+done
+
+PYTHON_VER=$($PYTHON3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
 NODE_VER=$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)
 
-echo "  python3  $PYTHON_VER"
+echo "  $PYTHON3  $PYTHON_VER"
 echo "  node     $(node -v 2>/dev/null)"
 echo "  aws      $(aws --version 2>/dev/null | awk '{print $1}' | cut -d/ -f2)"
 echo "  sam      $(sam --version 2>/dev/null | awk '{print $NF}')"
@@ -67,12 +83,12 @@ PYTHON_MAJOR=$(echo "$PYTHON_VER" | cut -d. -f1)
 PYTHON_MINOR=$(echo "$PYTHON_VER" | cut -d. -f2)
 if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; }; then
     echo "  ✗ Python >= 3.10 required (found $PYTHON_VER)"
-    exit 1
+    _geo_abort
 fi
 
 if [ -n "$NODE_VER" ] && [ "$NODE_VER" -lt 20 ] 2>/dev/null; then
     echo "  ✗ Node >= 20 required (found v$NODE_VER)"
-    exit 1
+    _geo_abort
 fi
 
 echo "  ✓ All prerequisites met"
@@ -138,7 +154,7 @@ else
             --output text 2>/dev/null || true)
         if [ -z "$CF_DIST_ID" ] || [ "$CF_DIST_ID" = "None" ]; then
             echo "  ✗ Distribution not found for domain: ${CF_INPUT}"
-            exit 1
+            _geo_abort
         fi
         echo "  ✓ Found distribution: ${CF_DIST_ID}"
     else
@@ -146,7 +162,7 @@ else
         echo "  Verifying distribution ${CF_DIST_ID}..."
         if ! aws cloudfront get-distribution --id "$CF_DIST_ID" --query 'Distribution.Id' --output text &>/dev/null; then
             echo "  ✗ Distribution ${CF_DIST_ID} not found."
-            exit 1
+            _geo_abort
         fi
         echo "  ✓ Distribution found"
     fi
@@ -221,7 +237,7 @@ read -rp "Proceed? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"
 if [[ ! "$CONFIRM" =~ ^[Yy] ]]; then
     echo "Aborted."
-    exit 0
+    _geo_abort
 fi
 
 # ==========================================================
@@ -229,7 +245,7 @@ fi
 # ==========================================================
 echo ""
 echo "==> [1/4] Installing Python dependencies..."
-python3 -m venv .venv
+$PYTHON3 -m venv .venv
 source .venv/bin/activate
 
 # Workaround for SSL certificate issues (common on corporate networks)
@@ -270,7 +286,7 @@ echo "  Deploying agent..."
 agentcore deploy
 
 # Extract Agent Runtime ARN from config
-AGENT_ARN=$(python3 -c "
+AGENT_ARN=$($PYTHON3 -c "
 import yaml
 with open('.bedrock_agentcore.yaml') as f:
     cfg = yaml.safe_load(f)

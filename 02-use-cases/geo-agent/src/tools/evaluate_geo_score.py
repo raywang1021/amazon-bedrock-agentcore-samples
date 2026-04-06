@@ -1,4 +1,9 @@
-"""Tool to evaluate GEO readiness of a URL across three fetch perspectives."""
+"""Tool to evaluate GEO readiness of a URL across three fetch perspectives.
+
+Fetches the same URL three ways (as-is, original UA, bot UA) and scores each
+across cited_sources, statistical_addition, and authoritative dimensions
+using an Amazon Bedrock LLM with temperature=0.1 for consistency.
+"""
 
 import json
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
@@ -71,7 +76,7 @@ MAX_CHARS = 12000
 
 
 def _strip_geo_trigger(url: str) -> str:
-    """Remove ua=genaibot querystring param to get the clean original URL."""
+    """Remove the ua=genaibot query parameter to get the clean original URL."""
     parsed = urlparse(url)
     qs = parse_qs(parsed.query, keep_blank_values=True)
     qs.pop("ua", None)
@@ -80,10 +85,12 @@ def _strip_geo_trigger(url: str) -> str:
 
 
 def _fetch_and_prepare(url: str, user_agent: str = DEFAULT_UA) -> str | None:
-    """Fetch URL with given UA, sanitize, truncate. Returns None on failure.
+    """Fetch a URL, sanitize, and truncate for scoring.
 
     For GEO-optimized responses (X-GEO-Optimized header), uses raw HTML
     instead of trafilatura extraction to preserve structural GEO signals.
+
+    Returns None on fetch failure.
     """
     import requests as _requests
     try:
@@ -93,11 +100,9 @@ def _fetch_and_prepare(url: str, user_agent: str = DEFAULT_UA) -> str | None:
     except Exception:
         return None
 
-    # GEO content is already clean structured HTML — use it directly
     if resp.headers.get("X-GEO-Optimized") == "true":
         text = resp.text
     else:
-        # Extract text from HTML using trafilatura (or fallback)
         try:
             import trafilatura
             text = trafilatura.extract(
@@ -117,10 +122,10 @@ def _fetch_and_prepare(url: str, user_agent: str = DEFAULT_UA) -> str | None:
 
 
 def _evaluate(text: str, label: str, url: str) -> dict:
-    """Run LLM evaluation on text, return parsed score dict.
+    """Run LLM evaluation on text and return the parsed score dictionary.
 
     Uses temperature=0.1 for consistent, reproducible scoring.
-    Guardrail is applied when configured via load_model().
+    Amazon Bedrock Guardrail is applied when configured via load_model().
     """
     from model.load import load_model
     from strands import Agent
@@ -130,9 +135,7 @@ def _evaluate(text: str, label: str, url: str) -> dict:
     prompt = f"Evaluate this web page content ({label}) from {url}:\n\n{text}"
     result = str(evaluator(prompt))
 
-    # Try to parse JSON from result
     try:
-        # Strip markdown code fences if present
         import re
         json_match = re.search(r'\{.*\}', result, re.DOTALL)
         if json_match:
@@ -159,7 +162,6 @@ def evaluate_geo_score(url: str) -> str:
     """
     clean_url = _strip_geo_trigger(url)
 
-    # --- Fetch all three perspectives ---
     as_is_text = _fetch_and_prepare(url)
     original_text = _fetch_and_prepare(clean_url)
     geo_text = _fetch_and_prepare(clean_url, user_agent=BOT_UA)
@@ -179,7 +181,7 @@ def evaluate_geo_score(url: str) -> str:
         else:
             results["perspectives"][key] = {"error": "Failed to fetch content"}
 
-    # --- Summary comparison ---
+    # Summary comparison
     scores = {}
     for key in ("as_is", "original", "geo"):
         p = results["perspectives"].get(key, {})

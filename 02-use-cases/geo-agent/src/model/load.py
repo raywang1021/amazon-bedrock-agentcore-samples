@@ -1,3 +1,9 @@
+"""Centralized Amazon Bedrock model configuration.
+
+Loads the BedrockModel with optional Amazon Bedrock Guardrail support.
+All sub-agents (rewriter, scorer, etc.) share this configuration via load_model().
+"""
+
 import os
 from strands.models import BedrockModel
 
@@ -8,13 +14,14 @@ GUARDRAIL_VERSION = os.environ.get("BEDROCK_GUARDRAIL_VERSION", "DRAFT")
 
 
 def load_model(temperature: float | None = None) -> BedrockModel:
-    """Get Bedrock model client. Uses IAM auth via execution role.
+    """Create an Amazon Bedrock model client with optional Guardrail.
 
-    Guardrail is enabled when BEDROCK_GUARDRAIL_ID env var is set.
-    BEDROCK_GUARDRAIL_VERSION defaults to "DRAFT" if not specified.
+    Guardrail is automatically enabled when the BEDROCK_GUARDRAIL_ID
+    environment variable is set. All sub-agents (rewriter, scorer, etc.)
+    share this configuration.
 
     Args:
-        temperature: Optional temperature override (e.g., 0.1 for scoring).
+        temperature: Optional temperature override (e.g., 0.1 for scoring consistency).
     """
     kwargs = dict(model_id=MODEL_ID, region_name=AWS_REGION)
 

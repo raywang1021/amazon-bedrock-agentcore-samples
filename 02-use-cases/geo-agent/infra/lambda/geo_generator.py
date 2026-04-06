@@ -1,7 +1,9 @@
-"""Async Lambda: invokes AgentCore to generate GEO content and store in DDB.
+"""Async AWS Lambda: invokes Amazon Bedrock AgentCore to generate GEO content.
 
 Triggered asynchronously by geo_content_handler on cache miss.
-Records created_at and generation_duration_ms for observability.
+Handles key mismatch between the handler's composite key (CloudFront host)
+and the agent's key (origin host) by checking both and copying content.
+Records timing metrics for observability.
 """
 
 import json
@@ -25,7 +27,7 @@ table = dynamodb.Table(TABLE_NAME)
 
 
 def _invoke_agentcore(url: str) -> str | None:
-    """Invoke AgentCore agent to generate GEO content for a URL."""
+    """Invoke the Amazon Bedrock AgentCore agent to generate GEO content for a URL."""
     if not AGENT_RUNTIME_ARN:
         print("AGENT_RUNTIME_ARN not set, skipping")
         return None
@@ -83,21 +85,15 @@ def handler(event, context):
         print(f"AgentCore returned no content for {url_path}")
         return {"status": "failed", "url_path": url_path}
 
-    # Agent's store_geo_content tool should have written to DDB.
-    # The agent builds its key from the URL's host (e.g. news.tvbs.com.tw#/path),
-    # which may differ from the handler's key (e.g. d123.cloudfront.net#/path).
-    # Try both keys to find the agent's stored content.
     item = None
     agent_ddb_key = None
 
-    # 1. Try handler's composite key first (strongly consistent read)
     try:
         response = table.get_item(Key={"url_path": url_path}, ConsistentRead=True)
         item = response.get("Item")
     except Exception as e:
         print(f"DDB read failed for {url_path}: {e}")
 
-    # 2. If not found or no geo_content, try agent's key (host from original_url)
     if not item or not item.get("geo_content"):
         parsed = urlparse(original_url)
         origin_host = parsed.netloc
@@ -124,9 +120,6 @@ def handler(event, context):
     generator_duration_ms = int((time.time() - generator_start) * 1000)
 
     if item and item.get("geo_content"):
-        # Agent stored content — write full record at handler's key
-        # (may differ from agent's key due to host mismatch)
-        # Validate that geo_content is actual HTML, not agent conversation text
         gc = item["geo_content"].strip()
         if not (gc.startswith("<") or gc.lower().startswith("<!doctype")):
             print(
@@ -154,8 +147,7 @@ def handler(event, context):
             }
             if host:
                 full_item["host"] = host
-            
-            # Copy GEO score tracking fields if present
+
             if "original_score" in item:
                 full_item["original_score"] = item["original_score"]
             if "geo_score" in item:
@@ -178,10 +170,7 @@ def handler(event, context):
             "generator_duration_ms": generator_duration_ms,
         }
 
-    # Agent didn't store in DDB — try to extract HTML from raw response.
-    # The raw response may contain conversational text mixed with HTML.
-    # Only store if we can find actual HTML content.
-    # Match common HTML root elements (rewriter may output <article> instead of <html>)
+    # Try to extract HTML from raw agent response as fallback
     html_match = re.search(
         r"(<(?:!DOCTYPE html|html|article|section|div|main|head)[\s>].*)",
         agent_response,
@@ -190,7 +179,6 @@ def handler(event, context):
     if html_match:
         geo_content = html_match.group(1).strip()
     else:
-        # No HTML found — don't store conversational text as GEO content
         print(
             f"No HTML content found in agent response for {url_path}, "
             f"marking as failed"

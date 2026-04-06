@@ -1,24 +1,15 @@
-"""Lambda: stores GEO-optimized content in DynamoDB.
+"""AWS Lambda: stores GEO-optimized content in Amazon DynamoDB.
 
-Called by the Agent's store_geo_content tool via lambda:InvokeFunction.
-This decouples the Agent from DynamoDB — Agent only needs lambda:InvokeFunction permission.
+Called by the agent's store_geo_content tool via lambda:InvokeFunction.
+This decouples the agent from Amazon DynamoDB — the agent only needs
+lambda:InvokeFunction permission.
 
-Expected payload:
-{
-    "url_path": "/world/3149600",
-    "geo_content": "<html>...</html>",
-    "original_url": "https://example.com/world/3149600",
-    "content_type": "text/html; charset=utf-8",
-    "generation_duration_ms": 12345,
-    "original_score": {
-        "overall_score": 45,
-        "dimensions": {...}
-    },
-    "geo_score": {
-        "overall_score": 78,
-        "dimensions": {...}
-    }
-}
+Supports two actions:
+  - store (default): Write a full GEO content record.
+  - update_scores: Update only score fields on an existing record.
+
+Includes HTML validation as a last line of defense — rejects content
+that doesn't start with '<'.
 """
 
 import json
@@ -36,7 +27,7 @@ table = dynamodb.Table(TABLE_NAME)
 
 
 def handler(event, context):
-    """Store GEO content or update scores in DynamoDB."""
+    """Route to store or update_scores based on the action field."""
     # Support both direct dict and JSON string payload
     if isinstance(event, str):
         event = json.loads(event)
@@ -50,7 +41,7 @@ def handler(event, context):
 
 
 def _update_scores(event):
-    """Update only score fields on an existing DDB record (no overwrite)."""
+    """Update only score fields on an existing Amazon DynamoDB record."""
     url_path = event.get("url_path")
     if not url_path:
         return {
@@ -109,6 +100,7 @@ def _update_scores(event):
 
 
 def _store_content(event):
+    """Validate and store a full GEO content record in Amazon DynamoDB."""
 
     url_path = event.get("url_path")
     geo_content = event.get("geo_content")
@@ -119,7 +111,7 @@ def _store_content(event):
             "body": json.dumps({"error": "url_path and geo_content are required"}),
         }
 
-    # Last-line-of-defense: reject content that isn't HTML
+    # Reject non-HTML content
     stripped = geo_content.strip()
     if not (stripped.startswith("<") or stripped.lower().startswith("<!doctype")):
         print(f"Rejected non-HTML content for {url_path}: {stripped[:80]}...")
@@ -129,7 +121,6 @@ def _store_content(event):
         }
 
     host = event.get("host", "")
-    # Build composite DDB key for multi-tenancy: {host}#{path}
     ddb_key = f"{host}#{url_path}" if host else url_path
 
     now = datetime.now(timezone.utc).isoformat()
@@ -153,7 +144,6 @@ def _store_content(event):
         from decimal import Decimal
         item["generation_duration_ms"] = Decimal(str(gen_ms))
 
-    # Store GEO scores for tracking effectiveness
     original_score = event.get("original_score")
     if original_score:
         item["original_score"] = original_score
@@ -161,7 +151,6 @@ def _store_content(event):
     geo_score = event.get("geo_score")
     if geo_score:
         item["geo_score"] = geo_score
-        # Calculate and store improvement for easy querying
         if original_score and "overall_score" in original_score and "overall_score" in geo_score:
             from decimal import Decimal
             improvement = Decimal(str(geo_score["overall_score"])) - Decimal(str(original_score["overall_score"]))

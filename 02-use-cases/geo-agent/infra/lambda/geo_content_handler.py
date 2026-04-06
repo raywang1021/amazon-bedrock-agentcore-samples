@@ -1,22 +1,23 @@
-"""Lambda handler: serves GEO content from DDB with 3 cache-miss modes.
+"""AWS Lambda handler: serves GEO content from Amazon DynamoDB.
 
-Modes (via querystring ?mode=):
-  - "passthrough" (default): Return original page, trigger async generation.
-  - "async": Return 202 immediately, trigger async generation.
-  - "sync": Wait for AgentCore to generate, return GEO content directly.
+Supports three cache-miss modes (via querystring ?mode=):
+  - passthrough (default): Return original page, trigger async generation.
+  - async: Return 202 immediately, trigger async generation.
+  - sync: Wait for Amazon Bedrock AgentCore to generate, return GEO content.
 
-Purge (via querystring ?purge=true):
-  - Deletes the DDB record for the requested path.
-  - Next bot visit will trigger fresh generation.
+Additional querystring controls:
+  - ?purge=true: Deletes the Amazon DynamoDB record and invalidates
+    Amazon CloudFront cache for the requested path.
+  - ?action=scores: Returns an HTML dashboard of GEO scores for the host.
 
-DDB status field:
-  - "ready": GEO content available, serve it.
-  - "processing": Generation in progress, don't re-trigger.
+DynamoDB status lifecycle:
   - (no record): First visit, trigger generation.
+  - "processing": Generation in progress, don't re-trigger.
+  - "ready": GEO content available, serve it.
 
-TTL:
-  - All DDB records include a `ttl` field (Unix timestamp).
-  - Default: 86400 seconds (24 hours). Configurable via GEO_TTL_SECONDS env var.
+All records include a TTL field (default 86400s / 24h, configurable via
+GEO_TTL_SECONDS). Stale processing records are auto-recovered after
+PROCESSING_TIMEOUT_SECONDS (default 300s / 5min).
 """
 
 import json
@@ -57,32 +58,31 @@ def _filtered_qs(event):
 
 
 def _ddb_key(host, path, qs=""):
-    """Build composite DDB key: '{host}#{path}[?qs]' for multi-tenancy."""
+    """Build composite DDB key '{host}#{path}[?qs]' for multi-tenancy."""
     full_path = f"{path}?{qs}" if qs else path
     return f"{host}#{full_path}" if host else full_path
 
 
 def _get_mode(event):
+    """Extract the cache-miss mode from querystring (passthrough/async/sync)."""
     params = event.get("queryStringParameters") or {}
     mode = params.get("mode", "passthrough")
     return mode if mode in ("async", "passthrough", "sync") else "passthrough"
 
 
 def _is_purge(event):
+    """Check if the request is a cache purge request."""
     params = event.get("queryStringParameters") or {}
     return params.get("purge", "").lower() in ("true", "1", "yes")
 
 
 def _ttl_value():
+    """Calculate the TTL Unix timestamp for a new DynamoDB record."""
     return int(time.time()) + GEO_TTL_SECONDS
 
 
 def _get_original_url(event, path):
-    # Multi-tenancy: use x-original-host (the CloudFront domain the bot hit)
-    # to fetch original content. CloudFront's default behavior proxies to the
-    # correct origin site. Fall back to DEFAULT_ORIGIN_HOST if header missing.
-    # IMPORTANT: don't include ua= param — it would trigger CFF bot routing
-    # and cause an infinite loop back to this Lambda.
+    """Reconstruct the original URL using x-original-host for multi-tenant routing."""
     headers = event.get("headers") or {}
     host = headers.get("x-original-host") or DEFAULT_ORIGIN_HOST
     if not host:
@@ -94,6 +94,7 @@ def _get_original_url(event, path):
 
 
 def _trigger_async(ddb_key, original_url, host="", mode="passthrough"):
+    """Invoke the generator Lambda asynchronously to produce GEO content."""
     if not GENERATOR_FUNCTION_NAME:
         return
     try:
@@ -135,6 +136,7 @@ def _mark_processing(ddb_key, original_url, host="", mode="passthrough"):
 
 
 def _fetch_original(url):
+    """Fetch the original page content from the origin site."""
     try:
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=10) as resp:
@@ -147,6 +149,7 @@ def _fetch_original(url):
 
 
 def _invoke_agentcore_sync(url):
+    """Invoke Amazon Bedrock AgentCore synchronously and return the response text."""
     if not AGENT_RUNTIME_ARN:
         return None
     client = boto3.client("bedrock-agentcore", region_name=AGENTCORE_REGION)
@@ -175,7 +178,7 @@ def _invoke_agentcore_sync(url):
 
 
 def _scores_dashboard(host):
-    """Return an HTML dashboard showing DDB records for this host."""
+    """Return an HTML dashboard showing Amazon DynamoDB records for this host."""
     try:
         # Scan with filter for this host's records
         items = []
@@ -324,18 +327,15 @@ render();
 
 
 def handler(event, context):
+    """Main Lambda handler for GEO content serving."""
     handler_start = time.time()
 
-    # Verify request comes from CloudFront
     headers = event.get("headers") or {}
     if headers.get("x-origin-verify") != ORIGIN_VERIFY_SECRET:
         return _error(403, "Forbidden")
 
-    # Support both ALB and Function URL event formats
-    # ALB: event["path"], Function URL: event["rawPath"]
     path = event.get("rawPath") or event.get("path") or "/"
 
-    # Skip static resources — no point in GEO-optimizing CSS/JS/images/fonts
     SKIP_EXTENSIONS = (
         '.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico',
         '.woff', '.woff2', '.ttf', '.eot', '.map', '.webp', '.avif',
@@ -347,17 +347,13 @@ def handler(event, context):
     mode = _get_mode(event)
     qs = _filtered_qs(event)
     original_url = _get_original_url(event, path)
-    # x-original-host: the host the bot actually accessed (set by CFF before origin switch)
-    # Falls back to x-forwarded-host or host header
     original_host = headers.get("x-original-host") or headers.get("x-forwarded-host") or headers.get("host") or ""
     ddb_key = _ddb_key(original_host, path, qs)
 
-    # --- Scores dashboard ---
     params = event.get("queryStringParameters") or {}
     if params.get("action") == "scores":
         return _scores_dashboard(original_host)
 
-    # --- Purge ---
     if _is_purge(event):
         try:
             table.delete_item(Key={"url_path": ddb_key})
@@ -374,7 +370,6 @@ def handler(event, context):
         except Exception as e:
             return _error(500, f"Purge failed: {e}")
 
-    # --- Cache lookup ---
     try:
         resp = table.get_item(Key={"url_path": ddb_key})
     except ClientError as e:
@@ -382,9 +377,7 @@ def handler(event, context):
 
     item = resp.get("Item")
 
-    # Cache hit — ready
     if item and item.get("status") == "ready":
-        # Validate geo_content is actual HTML, not agent conversation text
         gc = (item.get("geo_content") or "").strip()
         if not (gc.startswith("<") or gc.lower().startswith("<!doctype")):
             print(f"Non-HTML content in cache for {ddb_key}, purging and regenerating")
@@ -410,9 +403,7 @@ def handler(event, context):
             headers["X-GEO-Duration-Ms"] = str(dur)
         return {"statusCode": 200, "headers": headers, "body": item.get("geo_content", "")}
 
-    # Still processing
     if item and item.get("status") == "processing":
-        # Check if processing is stale (exceeded timeout)
         if _is_processing_stale(item):
             print(f"Stale processing record for {ddb_key}, resetting")
             try:
@@ -422,7 +413,6 @@ def handler(event, context):
             return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=False, handler_start=handler_start, host=original_host)
         return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=True, handler_start=handler_start, host=original_host)
 
-    # --- Cache miss ---
     return _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered=False, handler_start=handler_start, host=original_host)
 
 
@@ -430,7 +420,6 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
     """Handle cache miss or processing state based on mode."""
 
     if mode == "sync":
-        # Pre-check: fetch original to verify it's text content
         body, ct = _fetch_original(original_url)
         if body and not _is_text_content(ct):
             handler_ms = int((time.time() - handler_start) * 1000)
@@ -444,14 +433,12 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
                 },
                 "body": body,
             }
-        # Mark processing + invoke synchronously
         if not already_triggered:
             _mark_processing(ddb_key, original_url, host, mode="sync")
         start = time.time()
         _invoke_agentcore_sync(original_url)
         agent_duration_ms = int((time.time() - start) * 1000)
 
-        # Re-read DDB — agent should have stored content
         try:
             resp = table.get_item(Key={"url_path": ddb_key})
             item = resp.get("Item")
@@ -461,7 +448,6 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
         handler_ms = int((time.time() - handler_start) * 1000)
 
         if item and item.get("status") == "ready":
-            # Validate geo_content is actual HTML, not agent conversation text
             gc = (item.get("geo_content") or "").strip()
             if not (gc.startswith("<") or gc.lower().startswith("<!doctype")):
                 print(f"Non-HTML content in DDB for {ddb_key}, falling through")
@@ -495,7 +481,6 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
                 },
                 "body": item.get("geo_content", ""),
             }
-        # Sync failed — fall through to passthrough
         return _do_passthrough(original_url, path, handler_start)
 
     if mode == "async":
@@ -517,7 +502,6 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
         }
 
     # Default: passthrough
-    # Fetch original first, skip GEO generation for non-text content
     body, ct = _fetch_original(original_url)
     if body and not _is_text_content(ct):
         handler_ms = int((time.time() - handler_start) * 1000)
@@ -538,11 +522,13 @@ def _passthrough_or_202(mode, original_url, path, ddb_key, already_triggered, ha
 
 
 def _do_passthrough(original_url, path, handler_start):
+    """Fetch original content and return it as a passthrough response."""
     body, ct = _fetch_original(original_url)
     return _do_passthrough_with_body(body, ct, path, handler_start)
 
 
 def _do_passthrough_with_body(body, ct, path, handler_start):
+    """Return a passthrough response with pre-fetched body content."""
     handler_ms = int((time.time() - handler_start) * 1000)
     if body:
         return {
@@ -584,7 +570,7 @@ def _is_processing_stale(item):
 
 
 def _invalidate_cf_cache(path):
-    """Create CloudFront cache invalidation for the given path."""
+    """Create an Amazon CloudFront cache invalidation for the given path."""
     if not CF_DISTRIBUTION_ID:
         return None
     try:
@@ -608,6 +594,7 @@ def _invalidate_cf_cache(path):
 
 
 def _error(code, msg):
+    """Return a JSON error response."""
     return {
         "statusCode": code,
         "headers": {"Content-Type": "application/json"},
