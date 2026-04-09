@@ -20,7 +20,7 @@ Analyze the input and classify it as ONE of:
 STEP 2: APPLY TYPE-SPECIFIC STRATEGY
 ═══════════════════════════════════════
 
-【NEWS — 新聞/報導】
+【NEWS】
 - Add a "Key Takeaways" section (3-5 bullet points) at the top
 - Use clear headings (H2/H3) and short paragraphs
 - Strengthen claims with specific statistics and inline citations (e.g., "According to [Source], ...")
@@ -29,7 +29,7 @@ STEP 2: APPLY TYPE-SPECIFIC STRATEGY
 - Suggest schema type: Article / NewsArticle
 - Preserve the narrative flow — news should read as a story, not a spec sheet
 
-【ECOMMERCE — 電商/產品】
+【ECOMMERCE】
 - Lead with a structured specification block using key-value pairs:
   Category, Dimensions, Materials, Style, Price Range, Availability, etc.
 - Add a concise product summary paragraph (2-3 sentences max)
@@ -39,7 +39,7 @@ STEP 2: APPLY TYPE-SPECIFIC STRATEGY
 - Suggest schema type: Product (with offers, aggregateRating if available)
 - Format for maximum machine-parsability — AI engines should be able to extract specs directly
 
-【BLOG_TUTORIAL — 部落格/教學】
+【BLOG_TUTORIAL】
 - Restructure into clear numbered steps or sections
 - Add a "What You'll Learn" summary at the top
 - Use H2/H3 headings for each major section
@@ -48,7 +48,7 @@ STEP 2: APPLY TYPE-SPECIFIC STRATEGY
 - Suggest schema type: HowTo / Article
 - Ensure each section is self-contained and citable
 
-【FAQ — 常見問題】
+【FAQ】
 - Format each Q&A as a clear question-answer pair
 - Group related questions under topic headings
 - Keep answers concise but complete (2-4 sentences ideal)
@@ -56,7 +56,7 @@ STEP 2: APPLY TYPE-SPECIFIC STRATEGY
 - Suggest schema type: FAQPage
 - Optimize for direct extraction — AI engines should be able to pull individual Q&A pairs
 
-【GENERAL — 通用】
+【GENERAL】
 - Use clear headings (H2/H3), short paragraphs, and bullet points
 - Add a summary section at the top
 - Restructure into Q&A format where appropriate

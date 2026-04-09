@@ -153,7 +153,7 @@ def _invoke_agentcore_sync(url):
     if not AGENT_RUNTIME_ARN:
         return None
     client = boto3.client("bedrock-agentcore", region_name=AGENTCORE_REGION)
-    payload = json.dumps({"prompt": f"請將這個頁面做 GEO 優化並存到 DynamoDB: {url}"}).encode()
+    payload = json.dumps({"prompt": f"Generate GEO-optimized content and store to DynamoDB: {url}"}).encode()
     try:
         resp = client.invoke_agent_runtime(
             agentRuntimeArn=AGENT_RUNTIME_ARN,

@@ -33,7 +33,7 @@ def _invoke_agentcore(url: str) -> str | None:
         return None
 
     client = boto3.client("bedrock-agentcore", region_name=AGENTCORE_REGION)
-    prompt = f"請將這個頁面做 GEO 優化並存到 DynamoDB: {url}"
+    prompt = f"Generate GEO-optimized content and store to DynamoDB: {url}"
     payload = json.dumps({"prompt": prompt}).encode()
     session_id = str(uuid.uuid4())
 
